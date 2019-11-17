@@ -13,6 +13,9 @@
 -- somewhat balance that. TODO: measurements. In any case the primary goal here 
 -- is optimized memory usage.
 --
+-- TODO: ability to add user-defined (fixed-length) header, it can be useful
+-- for some applications
+--
 
 {-# LANGUAGE CPP, BangPatterns #-}
 module Dynamic where
@@ -24,24 +27,10 @@ import Data.Word
 
 import Blob 
 
---------------------------------------------------------------------------------
- 
-fi :: Int -> Word
-fi = fromIntegral
 
-test1a !from !len = list == toList (fromList list) where list = map fi [from..from+len-1]
-test1b !from !len = list == toList (fromList list) where list = reverse $ map fi [from..from+len-1]
- 
-test2a !from !len = fromList list == fromList (toList (fromList list)) where list = map fi [from..from+len-1]
-test2b !from !len = fromList list == fromList (toList (fromList list)) where list = reverse $ map fi [from..from+len-1]
-
-bad1a n m = [ (from,len) | from<-[0..n], len<-[0..m], not (test1a from len) ]    
-bad1b n m = [ (from,len) | from<-[0..n], len<-[0..m], not (test1b from len) ]    
-
-bad2a n m = [ (from,len) | from<-[0..n], len<-[0..m], not (test2a from len) ]    
-bad2b n m = [ (from,len) | from<-[0..n], len<-[0..m], not (test2b from len) ]    
 
 --------------------------------------------------------------------------------
+-- * The dynamic word vector type
 
 -- | Dynamic word vectors are internally 'Blob'-s, which start their shape,
 -- and after that their content.
@@ -54,7 +43,7 @@ bad2b n m = [ (from,len) | from<-[0..n], len<-[0..m], not (test2b from len) ]
 --
 data DynWordVec
   = SmallWordVec {-# UNPACK #-} !Blob   -- ^ length at most 63 and elements at most @2^16-1@
-  | BigWordVec   {-# UNPACK #-} !Blob   -- ^ length at most @2^29-1@ and elements at most @2^32-1@
+  | BigWordVec   {-# UNPACK #-} !Blob   -- ^ length at most @2^28-1@ and elements at most @2^64-1@
   -- deriving Show
   
 instance Show DynWordVec where
@@ -88,8 +77,8 @@ data Shape = Shape
 vecShape :: DynWordVec -> Shape
 vecShape dynvec = 
   case dynvec of
-    SmallWordVec blob -> let h = blobHead blob in mkShape (shiftR h 2 .&. 63        ) (shiftL ((h.&.3)+1) 2)
-    BigWordVec   blob -> let h = blobHead blob in mkShape (shiftR h 3 .&. 0x1fffffff) (shiftL ((h.&.7)+1) 2)
+    SmallWordVec blob -> let h = blobHead blob in mkShape (shiftR h 2 .&. 63        ) (shiftL ((h.&. 3)+1) 2)
+    BigWordVec   blob -> let h = blobHead blob in mkShape (shiftR h 4 .&. 0x0fffffff) (shiftL ((h.&.15)+1) 2)
   where
     mkShape :: Word64 -> Word64 -> Shape
     mkShape x y = Shape (fromIntegral x) (fromIntegral y)
@@ -99,6 +88,7 @@ vecLen  = shapeLen  . vecShape
 vecBits = shapeBits . vecShape
 
 --------------------------------------------------------------------------------
+-- * Conversion to\/from lists
 
 toList :: DynWordVec -> [Word]
 toList dynvec =
@@ -116,7 +106,7 @@ toList dynvec =
     the_mask = shiftL 1 bits - 1 :: Word64
 
     mask :: Word64 -> Word
-    mask w   = fromIntegral (w .&. the_mask)
+    mask w = fromIntegral (w .&. the_mask)
 
     worker !bitOfs !0 _  = []
     worker !bitOfs !k [] = replicate k 0     -- this shouldn't happen btw 
@@ -151,10 +141,10 @@ fromList xs = fromList' (Shape l b) xs where
 fromList' :: Shape -> [Word] -> DynWordVec
 fromList' (Shape len bits0) words
   | bits <= 16 && len <= 63  = SmallWordVec $ mkBlob (mkHeader 2)  8 words
-  | otherwise                = BigWordVec   $ mkBlob (mkHeader 3) 32 words
+  | otherwise                = BigWordVec   $ mkBlob (mkHeader 4) 32 words
   
   where
-    !bits    = max 4 $ min 32 $ (bits0 + 3) .&. 0x3c
+    !bits    = max 4 $ min 64 $ (bits0 + 3) .&. 0xfc
     !bitsEnc = shiftR bits 2 - 1 :: Int
     !content = bits*len          :: Int
     !mask    = shiftL 1 bits - 1 :: Word64
@@ -179,7 +169,8 @@ fromList' (Shape len bits0) words
               in   current' : worker (k-1) (shiftR this (64-bitOfs)) newOfs' rest
               
 --------------------------------------------------------------------------------
-              
+-- * Misc helpers
+
 -- | Smallest integer @k@ such that @2^k@ is larger or equal to @n@
 ceilingLog2 :: Word -> Int
 ceilingLog2 0 = 0
