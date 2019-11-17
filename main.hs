@@ -33,20 +33,24 @@ bad2b n m = [ (from,len) | from<-[0..n], len<-[0..m], not (test2b from len) ]
 nn = 500
 
 {-
+nn = 250
+16,104,664 bytes maximum residency
+MUT     time    0.298s  (  0.302s elapsed)
+GC      time    0.101s  (  0.114s elapsed)
+Total   time    0.400s  (  0.425s elapsed)
+  
 nn = 500
-117,591,952 bytes maximum residency 
-MUT     time    2.390s  (  2.415s elapsed)
-GC      time    0.558s  (  0.656s elapsed)
-EXIT    time    0.000s  (  0.008s elapsed)
-Total   time    2.948s  (  3.081s elapsed)
+109,637,536 bytes maximum residency
+MUT     time    2.376s  (  2.419s elapsed)
+GC      time    0.547s  (  0.648s elapsed)
+Total   time    2.922s  (  3.079s elapsed)
 
 nn = 1000
-695,819,000 bytes maximum residency
-MUT     time   17.343s  ( 17.505s elapsed)
-GC      time    3.094s  (  3.651s elapsed)
-Total   time   20.437s  ( 21.164s elapsed)
+617,839,680 bytes maximum residency
+MUT     time   17.070s  ( 17.254s elapsed)
+GC      time    3.133s  (  3.677s elapsed)
+Total   time   20.204s  ( 20.934s elapsed)
 -}
-
 tableDyn :: Map.Map DynWordVec Word
 tableDyn = Map.fromList  
   [ ( Dyn.fromList list , sum list )  
@@ -56,6 +60,12 @@ tableDyn = Map.fromList
   ]
 
 {-
+nn = 250
+308,261,800 bytes maximum residency 
+MUT     time    0.190s  (  0.192s elapsed)
+GC      time    0.713s  (  0.927s elapsed)
+Total   time    0.903s  (  1.130s elapsed)
+
 nn = 500
 2,308,906,360 bytes maximum residency 
 MUT     time    1.401s  (  1.418s elapsed)
@@ -72,35 +82,23 @@ tableList = Map.fromList
   
 --------------------------------------------------------------------------------
 
-newtype Fuck = Fuck Blob deriving Show
-
-smallToFuck (SmallWordVec blob) = Fuck blob
-
---------------------------------------------------------------------------------
-
 main = do
 {-
   print $ foldl' (+) 0 
         $ map (fromIntegral :: Word -> Integer)  
         $ map snd 
         $ Map.toList tableDyn
--}
 
-{-
+-}
   print $ bad1a 300 300
   print $ bad2a 300 300  
--}
 
---  forM_ [1..7 ] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[  -1..100], n<-[1..300] ] )
---  forM_ [8..63] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[-100..100], n<-[1..300] ] )
+  forM_ [1..7 ] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[  -1..100], n<-[1..300] ] )
+  forM_ [8..63] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[-100..100], n<-[1..300] ] )
   
   let a = fromList [  1.. 14]
       b = fromList [101..114]
-      a1 = smallToFuck a
-      b1 = smallToFuck b
   print a
   print b
-  print =<< ( a `seq` recursiveSize a )
-  print =<< ( b `seq` recursiveSize b )
-  print =<< ( a1 `seq` recursiveSize a1 )
-  print =<< ( b1 `seq` recursiveSize b1 )
+  print =<< ( a  `seq` recursiveSize a  )
+  print =<< ( b  `seq` recursiveSize b  )

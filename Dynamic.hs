@@ -7,11 +7,13 @@
 -- 
 -- For example the list @[1..14] :: [Int]@ consumes 576 bytes (72 words) on 
 -- a 64 bit machine, while the corresponding dynamic vector takes only
--- 32 bytes (4 words), and the list @[101..114]@ still only 40 bytes (5 words).
+-- 16 bytes (2 words), and the list @[101..114]@ still only 24 bytes (3 words).
 --
--- Some operations may be a bit slower, but hopefully the cache-friendlyness will
--- somewhat balance that. TODO: measurements. In any case the primary goal here 
--- is optimized memory usage.
+-- Some operations may be a bit slower, but hopefully the cache-friendlyness 
+-- will somewhat balance that (a simple microbenchmark with 'Data.Map'-s
+-- indexed by @[Int]@ vs. @DynWordVec@ showed a 2x improvement in speed and
+-- 20x improvement in memory usage). In any case the primary goal
+-- here is optimized memory usage.
 --
 -- TODO: ability to add user-defined (fixed-length) header, it can be useful
 -- for some applications
@@ -30,20 +32,21 @@ import Blob
 --------------------------------------------------------------------------------
 -- * The dynamic word vector type
 
--- | Dynamic word vectors are internally 'Blob'-s, which start their shape,
--- and after that their content.
+-- | Dynamic word vectors are internally 'Blob'-s, which the first few bits
+-- encoding their shape, and after that their content.
 --
--- * small vectors has 2 bits of \"resolution\" and  6 bits of length
--- * big   vectors has 3 bits of \"resolution\" and 29 bits of length
+-- * small vectors has 2 bits of \"resolution\" and  5 bits of length
+-- * big   vectors has 4 bits of \"resolution\" and 27 bits of length
 --
 -- Resolution encodes the number of bits per element. The latter is always a multiple
 -- of 4 (that is: 4 bits per element, or 8, or 12, etc. up to 64 bits per element).
 --
-data DynWordVec
-  = SmallWordVec {-# UNPACK #-} !Blob   -- ^ length at most 63 and elements at most @2^16-1@
-  | BigWordVec   {-# UNPACK #-} !Blob   -- ^ length at most @2^28-1@ and elements at most @2^64-1@
+-- We use the very first bit to decide which of these two encoding we use.
+-- (if we would make a sum type instead, it would take 2 extra words...)
+--
+newtype DynWordVec = DynWordVec Blob
   -- deriving Show
-  
+
 instance Show DynWordVec where
   showsPrec = showsPrecDynWordVec
 
@@ -72,15 +75,23 @@ data Shape = Shape
   , shapeBits :: !Int      -- ^ bits per element (quantized to multiples of 4)
   }
   deriving (Eq,Show)
-  
+
 vecShape :: DynWordVec -> Shape
-vecShape dynvec = 
-  case dynvec of
-    SmallWordVec blob -> let !h = blobHead blob in mkShape (shiftR h 2 .&. 63        ) (shiftL ((h.&. 3)+1) 2)
-    BigWordVec   blob -> let !h = blobHead blob in mkShape (shiftR h 4 .&. 0x0fffffff) (shiftL ((h.&.15)+1) 2)
-  where
-    mkShape :: Word64 -> Word64 -> Shape
-    mkShape x y = Shape (fromIntegral x) (fromIntegral y)
+vecShape = snd . vecShape'
+  
+vecShape' :: DynWordVec -> (Bool,Shape)
+vecShape' (DynWordVec blob) = (isSmall,shape) where
+  !h      = blobHead blob
+  !h2     = shiftR h 1
+  !isSmall = (h .&. 1) == 0
+  shape   = if isSmall
+    then mkShape (shiftR h 3 .&. 31        ) (shiftL ((h2.&. 3)+1) 2)
+    else mkShape (shiftR h 5 .&. 0x07ffffff) (shiftL ((h2.&.15)+1) 2)
+  mkShape :: Word64 -> Word64 -> Shape
+  mkShape !x !y = Shape (fromIntegral x) (fromIntegral y)
+
+vecIsSmall :: DynWordVec -> Bool
+vecIsSmall (DynWordVec blob) = (blobHead blob .&. 1) == 0  
 
 vecLen, vecBits :: DynWordVec -> Int
 vecLen  = shapeLen  . vecShape
@@ -93,37 +104,36 @@ null v = (vecLen v == 0)
 -- * Indexing
 
 unsafeIndex :: Int -> DynWordVec -> Word
-unsafeIndex idx dynvec = 
-  case dynvec of
-    SmallWordVec blob -> extractSmallWord bits blob ( 8 + bits*idx)
-    BigWordVec   blob -> extractSmallWord bits blob (32 + bits*idx)
+unsafeIndex idx dynvec@(DynWordVec blob) = 
+  case isSmall of
+    True  -> extractSmallWord bits blob ( 8 + bits*idx)
+    False -> extractSmallWord bits blob (32 + bits*idx)
   where
-    bits = vecBits dynvec
+    (isSmall, Shape _ bits) = vecShape' dynvec
 
 safeIndex :: Int -> DynWordVec -> Maybe Word
-safeIndex idx dynvec 
+safeIndex idx dynvec@(DynWordVec blob)
   | idx < 0    = Nothing
   | idx >= len = Nothing
-  | otherwise  = Just $ case dynvec of
-      SmallWordVec blob -> extractSmallWord bits blob ( 8 + bits*idx)
-      BigWordVec   blob -> extractSmallWord bits blob (32 + bits*idx)
+  | otherwise  = Just $ case isSmall of
+      True  -> extractSmallWord bits blob ( 8 + bits*idx)
+      False -> extractSmallWord bits blob (32 + bits*idx)
   where
-    Shape len bits = vecShape dynvec
+    (isSmall, Shape len bits) = vecShape' dynvec
     
 --------------------------------------------------------------------------------
 -- * Conversion to\/from lists
 
 toList :: DynWordVec -> [Word]
-toList dynvec =
-  case dynvec of
-    SmallWordVec blob -> worker  8 len (onHeadShiftR  8 $ blobToWordList blob)
-    BigWordVec   blob -> worker 32 len (onHeadShiftR 32 $ blobToWordList blob)
+toList dynvec@(DynWordVec blob) =
+  case isSmall of
+    True  -> worker  8 len (shiftR header  8 : restOfWords)
+    False -> worker 32 len (shiftR header 32 : restOfWords)
   
   where
-  
-    onHeadShiftR :: Int -> [Word64] -> [Word64]
-    onHeadShiftR k (x:xs) = shiftR x k : xs
-    
+    isSmall = (header .&. 1) == 0
+    (header:restOfWords) = blobToWordList blob
+      
     Shape len bits = vecShape dynvec
     
     the_mask = shiftL 1 bits - 1 :: Word64
@@ -143,15 +153,16 @@ toList dynvec =
                   let !newOfs' = newOfs - 64
                       !elem = mask (this .|. shiftL that (64-bitOfs)) 
                   in  elem : worker newOfs' (k-1) (shiftR that newOfs' : rest') 
-
+                [] -> error "DynWordVec/toList: FATAL ERROR! this should not happen"
+                
 -- | Another implementation of 'toList', for testing purposes only
 toList_naive :: DynWordVec -> [Word]
-toList_naive dynvec = 
-  case dynvec of
-    SmallWordVec blob -> [ extractSmallWord bits blob ( 8 + bits*i) | i<-[0..len-1] ]
-    BigWordVec   blob -> [ extractSmallWord bits blob (32 + bits*i) | i<-[0..len-1] ]
+toList_naive dynvec@(DynWordVec blob)  = 
+  case isSmall of
+    True  -> [ extractSmallWord bits blob ( 8 + bits*i) | i<-[0..len-1] ]
+    False -> [ extractSmallWord bits blob (32 + bits*i) | i<-[0..len-1] ]
   where
-    shape@(Shape len bits) = vecShape dynvec
+    (isSmall, Shape len bits) = vecShape' dynvec
 
 --------------------------------------------------------------------------------
     
@@ -163,8 +174,8 @@ fromList xs = fromList' (Shape l b) xs where
   
 fromList' :: Shape -> [Word] -> DynWordVec
 fromList' (Shape len bits0) words
-  | bits <= 16 && len <= 63  = SmallWordVec $ mkBlob (mkHeader 2)  8 words
-  | otherwise                = BigWordVec   $ mkBlob (mkHeader 4) 32 words
+  | bits <= 16 && len <= 31  = DynWordVec $ mkBlob (mkHeader 0 2)  8 words
+  | otherwise                = DynWordVec $ mkBlob (mkHeader 1 4) 32 words
   
   where
     !bits    = max 4 $ min 64 $ (bits0 + 3) .&. 0xfc
@@ -172,8 +183,8 @@ fromList' (Shape len bits0) words
     !content = bits*len          :: Int
     !mask    = shiftL 1 bits - 1 :: Word64
 
-    mkHeader :: Int -> Word64
-    mkHeader !resoBits = fromIntegral (bitsEnc + shiftL len resoBits)
+    mkHeader :: Word64 -> Int -> Word64
+    mkHeader !isSmall !resoBits = isSmall + fromIntegral (shiftL (bitsEnc + shiftL len resoBits) 1)
      
     mkBlob !header !ofs words = blobFromWordListN (shiftR (ofs+content+63) 6) 
                               $ worker len header ofs words
