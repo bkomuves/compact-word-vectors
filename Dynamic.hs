@@ -47,29 +47,7 @@ import Blob
 newtype DynWordVec = DynWordVec Blob
   -- deriving Show
 
-instance Show DynWordVec where
-  showsPrec = showsPrecDynWordVec
-
-showDynWordVec :: DynWordVec -> String
-showDynWordVec dynvec = showsPrecDynWordVec 0 dynvec []
-
-showsPrecDynWordVec :: Int -> DynWordVec -> ShowS
-showsPrecDynWordVec prec dynvec
-    = showParen (prec > 10) 
-    $ showString "fromList' "
-    . showsPrec 11 (vecShape dynvec)
-    . showChar ' ' 
-    . shows (toList dynvec)
-    
-instance Eq DynWordVec where
-  (==) x y  =  (vecLen x == vecLen y) && (toList x == toList y)
-
-instance Ord DynWordVec where
-  compare x y = case compare (vecLen x) (vecLen y) of 
-    LT -> LT
-    GT -> GT
-    EQ -> compare (toList x) (toList y)
-    
+-- | The \"shape\" of a dynamic word vector
 data Shape = Shape
   { shapeLen  :: !Int      -- ^ length of the vector
   , shapeBits :: !Int      -- ^ bits per element (quantized to multiples of 4)
@@ -97,6 +75,37 @@ vecLen, vecBits :: DynWordVec -> Int
 vecLen  = shapeLen  . vecShape
 vecBits = shapeBits . vecShape
 
+--------------------------------------------------------------------------------
+-- * Instances
+
+instance Show DynWordVec where
+  showsPrec = showsPrecDynWordVec
+
+showDynWordVec :: DynWordVec -> String
+showDynWordVec dynvec = showsPrecDynWordVec 0 dynvec []
+
+showsPrecDynWordVec :: Int -> DynWordVec -> ShowS
+showsPrecDynWordVec prec dynvec
+  = showParen (prec > 10) 
+  $ showString "fromList' "
+  . showsPrec 11 (vecShape dynvec)
+  . showChar ' ' 
+  . shows (toList dynvec)
+    
+instance Eq DynWordVec where
+  (==) x y  =  (vecLen x == vecLen y) && (toList x == toList y)
+
+instance Ord DynWordVec where
+  compare x y = case compare (vecLen x) (vecLen y) of 
+    LT -> LT
+    GT -> GT
+    EQ -> compare (toList x) (toList y)
+
+--------------------------------------------------------------------------------
+
+empty :: DynWordVec
+empty = fromList []
+
 null :: DynWordVec -> Bool
 null v = (vecLen v == 0)
 
@@ -121,6 +130,14 @@ safeIndex idx dynvec@(DynWordVec blob)
   where
     (isSmall, Shape len bits) = vecShape' dynvec
     
+head :: DynWordVec -> Word
+head dynvec@(DynWordVec blob) = 
+  case vecIsSmall dynvec of
+    True  -> extractSmallWord bits blob  8
+    False -> extractSmallWord bits blob 32
+  where
+    bits = vecBits dynvec
+
 --------------------------------------------------------------------------------
 -- * Conversion to\/from lists
 
