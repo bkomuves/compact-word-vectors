@@ -6,7 +6,10 @@ import Control.Monad
 import Data.List
 import qualified Data.Map.Strict as Map
 
+import Blob
 import Dynamic as Dyn
+
+import GHC.DataSize
 
 --------------------------------------------------------------------------------
  
@@ -69,6 +72,12 @@ tableList = Map.fromList
   
 --------------------------------------------------------------------------------
 
+newtype Fuck = Fuck Blob deriving Show
+
+smallToFuck (SmallWordVec blob) = Fuck blob
+
+--------------------------------------------------------------------------------
+
 main = do
 {-
   print $ foldl' (+) 0 
@@ -82,6 +91,16 @@ main = do
   print $ bad2a 300 300  
 -}
 
-  forM_ [1..7 ] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[  -1..100], n<-[1..300] ] )
-  forM_ [8..63] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[-100..100], n<-[1..300] ] )
+--  forM_ [1..7 ] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[  -1..100], n<-[1..300] ] )
+--  forM_ [8..63] $ \i -> print (i , and [ test1a (2^i+o) n | o<-[-100..100], n<-[1..300] ] )
   
+  let a = fromList [  1.. 14]
+      b = fromList [101..114]
+      a1 = smallToFuck a
+      b1 = smallToFuck b
+  print a
+  print b
+  print =<< ( a `seq` recursiveSize a )
+  print =<< ( b `seq` recursiveSize b )
+  print =<< ( a1 `seq` recursiveSize a1 )
+  print =<< ( b1 `seq` recursiveSize b1 )
