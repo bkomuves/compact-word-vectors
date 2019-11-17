@@ -1,28 +1,28 @@
 
 -- | Blobs are raw data in continuous regions of memory.
 --
--- This library provides a type for (64 bit aligned) blobs 
--- which is optimized for small sizes. They take
+-- This library provides a type for blobs consisting 64 bit words 
+-- which is optimized for small sizes. They take:
 --
 -- * 1 extra word up for blobs of size up to 48 bytes (6 @Word64@-s)  
 --
 -- * 4 extra words above that
 --
--- This particular tradeoff was chosen so that pointer tagging still
--- works on 64 bit architectures.
+-- (This particular tradeoff was chosen so that pointer tagging still
+-- works on 64 bit architectures: there are 7 constructors of the data type.)
 --
 -- The 'Blob' data type is useful if you want to store large amounts of small,
 -- serialized data. Some example use cases:
 --
+--  * small vectors of small nonnegative integers (for example: partitions, permutations, monomials)
+-- 
 --  * cryptographic hashes 
 --
---  * small vectors of small nonnegative integers 
--- 
 --  * tables indexed by such things
 --
 
 {-# LANGUAGE CPP, BangPatterns, MagicHash, UnboxedTuples #-}
-module Main where -- Blob where
+module Blob where
 
 --------------------------------------------------------------------------------
 
@@ -47,30 +47,6 @@ import Foreign.Marshal.Array
 import Control.Monad.Primitive
 import Data.Primitive.ByteArray
 
---------------------------------------------------------------------------------
-
-main = do
-  let blob1 = blobFromWordList [101,102]
-      blob2 = blobFromWordList [303..313]
-  print blob1
-  print blob2
-  print $ mapBlob (+1000) blob1
-  print $ mapBlob (+1000) blob2
-   
-  {-
-  print $ blobTag blob1
-  print $ blobTag blob2
-  ptr1 <- unsafeGetBlobDataPtr blob1
-  ptr2 <- unsafeGetBlobDataPtr blob2
-  print ptr1
-  print ptr2
-  print =<< ( peekArray 3 ptr1 :: IO [Word64] )
-  print =<< ( peekArray 3 ptr2 :: IO [Word64] )
-  case blob1 of { Blob2 a b -> print (a,b) } 
-  print (blobByteArray blob1)
-  blob1 `seq` print (blobByteArray blob2)
-  -}
-  
 --------------------------------------------------------------------------------
 -- * the Blob type
 
@@ -137,7 +113,8 @@ blobToWordList blob = case blob of
 --------------------------------------------------------------------------------
   
 instance Show Blob where
-  showsPrec prec blob = showParen (prec > 10) 
+  showsPrec prec blob 
+    = showParen (prec > 10) 
     $ showString "blobFromWordList " 
     . shows (map Hex $ blobToWordList blob)
 
@@ -234,6 +211,16 @@ peekByte blob idx =
   let w = peekWord blob (shiftR idx 3)
   in  fromIntegral $ shiftR w (8 * (idx .&. 7))
 
+blobHead :: Blob -> Word64
+blobHead blob = case blob of
+  Blob1 a             -> a
+  Blob2 a _           -> a
+  Blob3 a _ _         -> a
+  Blob4 a _ _ _       -> a
+  Blob5 a _ _ _ _     -> a
+  Blob6 a _ _ _ _ _   -> a
+  BlobN arr#          -> indexByteArray (ByteArray arr#) 0
+  
 --------------------------------------------------------------------------------
 
 -- | @extractSmallWord n blob ofs@ extracts a small word of @n@ bits starting from the
