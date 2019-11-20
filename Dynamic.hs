@@ -6,12 +6,17 @@
 -- small vectors of small elements compactly on memory.
 -- 
 -- For example the list @[1..14] :: [Int]@ consumes 576 bytes (72 words) on 
--- a 64 bit machine, while the corresponding dynamic vector takes only
--- 16 bytes (2 words), and the list @[101..114]@ still only 24 bytes (3 words).
+-- a 64 bit machine, while the corresponding dynamic word vector takes only
+-- 16 bytes (2 words), and the one corresponding to @[101..114]@ still only 
+-- 24 bytes (3 words).
+--
+-- Unboxed arrays or unboxed vectors are better, as they only have a constant
+-- overhead, but those constants are big: 13 words (104 bytes on 64 bit)
+-- for unboxed arrays, and 6 words (48 bytes) for unboxed vectors.
 --
 -- Some operations may be a bit slower, but hopefully the cache-friendlyness 
 -- will somewhat balance that (a simple microbenchmark with 'Data.Map'-s
--- indexed by @[Int]@ vs. @DynWordVec@ showed a 2x improvement in speed and
+-- indexed by @[Int]@ vs. @WordVec@ showed a 2x improvement in speed and
 -- 20x improvement in memory usage). In any case the primary goal
 -- here is optimized memory usage.
 --
@@ -44,7 +49,7 @@ import Blob
 -- We use the very first bit to decide which of these two encoding we use.
 -- (if we would make a sum type instead, it would take 2 extra words...)
 --
-newtype DynWordVec = DynWordVec Blob
+newtype WordVec = WordVec Blob
   -- deriving Show
 
 -- | The \"shape\" of a dynamic word vector
@@ -54,11 +59,11 @@ data Shape = Shape
   }
   deriving (Eq,Show)
 
-vecShape :: DynWordVec -> Shape
+vecShape :: WordVec -> Shape
 vecShape = snd . vecShape'
   
-vecShape' :: DynWordVec -> (Bool,Shape)
-vecShape' (DynWordVec blob) = (isSmall,shape) where
+vecShape' :: WordVec -> (Bool,Shape)
+vecShape' (WordVec blob) = (isSmall,shape) where
   !h      = blobHead blob
   !h2     = shiftR h 1
   !isSmall = (h .&. 1) == 0
@@ -68,34 +73,34 @@ vecShape' (DynWordVec blob) = (isSmall,shape) where
   mkShape :: Word64 -> Word64 -> Shape
   mkShape !x !y = Shape (fromIntegral x) (fromIntegral y)
 
-vecIsSmall :: DynWordVec -> Bool
-vecIsSmall (DynWordVec blob) = (blobHead blob .&. 1) == 0  
+vecIsSmall :: WordVec -> Bool
+vecIsSmall (WordVec blob) = (blobHead blob .&. 1) == 0  
 
-vecLen, vecBits :: DynWordVec -> Int
+vecLen, vecBits :: WordVec -> Int
 vecLen  = shapeLen  . vecShape
 vecBits = shapeBits . vecShape
 
 --------------------------------------------------------------------------------
 -- * Instances
 
-instance Show DynWordVec where
-  showsPrec = showsPrecDynWordVec
+instance Show WordVec where
+  showsPrec = showsPrecWordVec
 
-showDynWordVec :: DynWordVec -> String
-showDynWordVec dynvec = showsPrecDynWordVec 0 dynvec []
+showWordVec :: WordVec -> String
+showWordVec dynvec = showsPrecWordVec 0 dynvec []
 
-showsPrecDynWordVec :: Int -> DynWordVec -> ShowS
-showsPrecDynWordVec prec dynvec
+showsPrecWordVec :: Int -> WordVec -> ShowS
+showsPrecWordVec prec dynvec
   = showParen (prec > 10) 
   $ showString "fromList' "
   . showsPrec 11 (vecShape dynvec)
   . showChar ' ' 
   . shows (toList dynvec)
     
-instance Eq DynWordVec where
+instance Eq WordVec where
   (==) x y  =  (vecLen x == vecLen y) && (toList x == toList y)
 
-instance Ord DynWordVec where
+instance Ord WordVec where
   compare x y = case compare (vecLen x) (vecLen y) of 
     LT -> LT
     GT -> GT
@@ -103,25 +108,25 @@ instance Ord DynWordVec where
 
 --------------------------------------------------------------------------------
 
-empty :: DynWordVec
+empty :: WordVec
 empty = fromList []
 
-null :: DynWordVec -> Bool
+null :: WordVec -> Bool
 null v = (vecLen v == 0)
 
 --------------------------------------------------------------------------------
 -- * Indexing
 
-unsafeIndex :: Int -> DynWordVec -> Word
-unsafeIndex idx dynvec@(DynWordVec blob) = 
+unsafeIndex :: Int -> WordVec -> Word
+unsafeIndex idx dynvec@(WordVec blob) = 
   case isSmall of
     True  -> extractSmallWord bits blob ( 8 + bits*idx)
     False -> extractSmallWord bits blob (32 + bits*idx)
   where
     (isSmall, Shape _ bits) = vecShape' dynvec
 
-safeIndex :: Int -> DynWordVec -> Maybe Word
-safeIndex idx dynvec@(DynWordVec blob)
+safeIndex :: Int -> WordVec -> Maybe Word
+safeIndex idx dynvec@(WordVec blob)
   | idx < 0    = Nothing
   | idx >= len = Nothing
   | otherwise  = Just $ case isSmall of
@@ -130,8 +135,8 @@ safeIndex idx dynvec@(DynWordVec blob)
   where
     (isSmall, Shape len bits) = vecShape' dynvec
     
-head :: DynWordVec -> Word
-head dynvec@(DynWordVec blob) = 
+head :: WordVec -> Word
+head dynvec@(WordVec blob) = 
   case vecIsSmall dynvec of
     True  -> extractSmallWord bits blob  8
     False -> extractSmallWord bits blob 32
@@ -141,8 +146,8 @@ head dynvec@(DynWordVec blob) =
 --------------------------------------------------------------------------------
 -- * Conversion to\/from lists
 
-toList :: DynWordVec -> [Word]
-toList dynvec@(DynWordVec blob) =
+toList :: WordVec -> [Word]
+toList dynvec@(WordVec blob) =
   case isSmall of
     True  -> worker  8 len (shiftR header  8 : restOfWords)
     False -> worker 32 len (shiftR header 32 : restOfWords)
@@ -170,11 +175,11 @@ toList dynvec@(DynWordVec blob) =
                   let !newOfs' = newOfs - 64
                       !elem = mask (this .|. shiftL that (64-bitOfs)) 
                   in  elem : worker newOfs' (k-1) (shiftR that newOfs' : rest') 
-                [] -> error "DynWordVec/toList: FATAL ERROR! this should not happen"
+                [] -> error "WordVec/toList: FATAL ERROR! this should not happen"
                 
 -- | Another implementation of 'toList', for testing purposes only
-toList_naive :: DynWordVec -> [Word]
-toList_naive dynvec@(DynWordVec blob)  = 
+toList_naive :: WordVec -> [Word]
+toList_naive dynvec@(WordVec blob)  = 
   case isSmall of
     True  -> [ extractSmallWord bits blob ( 8 + bits*i) | i<-[0..len-1] ]
     False -> [ extractSmallWord bits blob (32 + bits*i) | i<-[0..len-1] ]
@@ -183,16 +188,16 @@ toList_naive dynvec@(DynWordVec blob)  =
 
 --------------------------------------------------------------------------------
     
-fromList :: [Word] -> DynWordVec
+fromList :: [Word] -> WordVec
 fromList [] = fromList' (Shape 0 4) []
 fromList xs = fromList' (Shape l b) xs where
   l = length xs
   b = bitsNeededFor (maximum xs)
   
-fromList' :: Shape -> [Word] -> DynWordVec
+fromList' :: Shape -> [Word] -> WordVec
 fromList' (Shape len bits0) words
-  | bits <= 16 && len <= 31  = DynWordVec $ mkBlob (mkHeader 0 2)  8 words
-  | otherwise                = DynWordVec $ mkBlob (mkHeader 1 4) 32 words
+  | bits <= 16 && len <= 31  = WordVec $ mkBlob (mkHeader 0 2)  8 words
+  | otherwise                = WordVec $ mkBlob (mkHeader 1 4) 32 words
   
   where
     !bits    = max 4 $ min 64 $ (bits0 + 3) .&. 0xfc
@@ -222,27 +227,27 @@ fromList' (Shape len bits0) words
 --------------------------------------------------------------------------------
 -- * some operations
 
-naiveMap :: (Word -> Word) -> DynWordVec -> DynWordVec
+naiveMap :: (Word -> Word) -> WordVec -> WordVec
 naiveMap f u = fromList (map f $ toList u)
 
 -- | If you have a (nearly sharp) upper bound to the result of your of function
 -- on your vector, mapping can be more efficient 
-boundedMap :: Word -> (Word -> Word) -> DynWordVec -> DynWordVec
+boundedMap :: Word -> (Word -> Word) -> WordVec -> WordVec
 boundedMap bound f vec = fromList' (Shape l bits) (toList vec) where
   l    = vecLen vec
   bits = bitsNeededFor bound
 
-concat :: DynWordVec -> DynWordVec -> DynWordVec
+concat :: WordVec -> WordVec -> WordVec
 concat u v = fromList' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
   Shape lu bu = vecShape u
   Shape lv bv = vecShape v
 
-naiveZipWith :: (Word -> Word -> Word) -> DynWordVec -> DynWordVec -> DynWordVec
+naiveZipWith :: (Word -> Word -> Word) -> WordVec -> WordVec -> WordVec
 naiveZipWith f u v = fromList $ zipWith f (toList u) (toList v)
 
 -- | If you have a (nearly sharp) upper bound to the result of your of function
 -- on your vector, zipping can be more efficient 
-boundedZipWith :: Word -> (Word -> Word -> Word) -> DynWordVec -> DynWordVec -> DynWordVec
+boundedZipWith :: Word -> (Word -> Word -> Word) -> WordVec -> WordVec -> WordVec
 boundedZipWith bound f vec1 vec2  = fromList' (Shape l bits) $ zipWith f (toList vec1) (toList vec2) where
   l    = min (vecLen vec1) (vecLen vec2)
   bits = bitsNeededFor bound

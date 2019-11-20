@@ -17,7 +17,7 @@ import qualified Dynamic as Dyn
 
 -- | A dynamic int vector is a (small) vector of small signed integers stored compactly
 newtype IntVec 
-  = IntVec Dyn.DynWordVec
+  = IntVec Dyn.WordVec
   deriving (Eq,Ord)
     
 vecShape :: IntVec -> Shape  
