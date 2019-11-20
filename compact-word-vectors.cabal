@@ -1,5 +1,5 @@
 Name:                compact-word-vectors
-Version:             0.1
+Version:             0.2
 Synopsis:            Small vectors of small integers stored very compactly.
 Description:         A data structure to store small vectors of small integers
                      with minimal memory overhead. For example the (word) vector
