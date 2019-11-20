@@ -33,6 +33,7 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
   [ testCase "toList . fromList == id"    $ forall_ small_Lists   prop_from_to_list
   , testCase "fromList . toList == id"    $ forall_ small_Vecs    prop_to_from_vec
   , testCase "fromList vs. indexing"      $ forall_ small_Lists   prop_fromlist_vs_index
+  , testCase "toList vs. naive"           $ forall_ small_Vecs    prop_tolist_vs_naive
   , testCase "vec head vs. list head"     $ forall_ small_NELists prop_head_of_list
   , testCase "head vs. indexing"          $ forall_ small_NEVecs  prop_head_vs_index
   ]
@@ -41,6 +42,7 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
   [ testCase "toList . fromList == id"    $ forall_ bighead_Lists   prop_from_to_list
   , testCase "fromList . toList == id"    $ forall_ bighead_Vecs    prop_to_from_vec
   , testCase "fromList vs. indexing"      $ forall_ bighead_Lists   prop_fromlist_vs_index
+  , testCase "toList vs. naive"           $ forall_ bighead_Vecs    prop_tolist_vs_naive
   , testCase "vec head vs. list head"     $ forall_ bighead_NELists prop_head_of_list
   , testCase "head vs. indexing"          $ forall_ bighead_NEVecs  prop_head_vs_index
   ]
@@ -86,6 +88,8 @@ bighead_NEVecs  = [ NEVec  v  | Vec  v  <- bighead_Vecs  ] :: [NEVec]
 
 prop_from_to_list (List list) = V.toList (V.fromList list) == list
 prop_to_from_vec  (Vec  vec ) = V.fromList (V.toList vec ) == vec
+
+prop_tolist_vs_naive (Vec vec) = (V.toList vec == V.toList_naive vec)
 
 prop_fromlist_vs_index (List list) = [ unsafeIndex i vec | i<-[0..n-1] ] == list where 
   vec = V.fromList list
