@@ -2,9 +2,13 @@ Name:                compact-word-vectors
 Version:             0.1
 Synopsis:            Small vectors of small integers stored very compactly.
 Description:         A data structure to store small vectors of small integers
-                     with minimal memory overhead. For example the vector
+                     with minimal memory overhead. For example the (word) vector
                      corresponding to [1..14] only takes 16 bytes (2 machine
                      words on 64 bit architectures) of heap memory.
+                     
+                     See the module "Data.Vector.Compact.WordVec" for more
+                     details.
+
 License:             BSD3
 License-file:        LICENSE
 Author:              Balazs Komuves

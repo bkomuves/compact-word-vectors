@@ -21,14 +21,19 @@
 -- 20x improvement in memory usage). In any case the primary goal
 -- here is optimized memory usage.
 --
--- TODO: ability to add user-defined (fixed-length) header, it can be useful
--- for some applications
+-- This module should be imported qualified (to avoid name clashes with Prelude).
+--
+-- TODO: ability to add user-defined (fixed-length) header, it can be 
+-- potentially useful for some applications 
 --
 
 {-# LANGUAGE BangPatterns #-}
 module Data.Vector.Compact.WordVec where
 
 --------------------------------------------------------------------------------
+
+import Prelude hiding ( head , tail , null ) 
+import qualified Data.List as L
 
 import Data.Bits
 import Data.Word
@@ -108,13 +113,22 @@ instance Ord WordVec where
     EQ -> compare (toList x) (toList y)
 
 --------------------------------------------------------------------------------
--- * Empty vectors
+-- * Empty vector, singleton
 
 empty :: WordVec
 empty = fromList []
 
 null :: WordVec -> Bool
 null v = (vecLen v == 0)
+
+singleton :: Word -> WordVec
+singleton x = fromList' (Shape 1 bits) [x] where
+  bits = bitsNeededFor x
+
+isSingleton :: WordVec -> Maybe Word
+isSingleton v = case (vecLen v) of
+  1 -> Just (head v)
+  _ -> Nothing
 
 --------------------------------------------------------------------------------
 -- * Indexing
@@ -136,6 +150,9 @@ safeIndex idx dynvec@(WordVec blob)
       False -> extractSmallWord bits blob (32 + bits*idx)
   where
     (isSmall, Shape len bits) = vecShape' dynvec
+
+--------------------------------------------------------------------------------
+-- * Head, tail, etc
     
 head :: WordVec -> Word
 head dynvec@(WordVec blob) = 
@@ -144,6 +161,32 @@ head dynvec@(WordVec blob) =
     False -> extractSmallWord bits blob 32
   where
     bits = vecBits dynvec
+
+tail :: WordVec -> WordVec
+tail dynvec 
+  | len == 0   = empty
+  | otherwise  = fromList' (Shape (len-1) bits) (L.tail $ toList dynvec)
+  where
+    (Shape len bits) = vecShape dynvec
+
+uncons :: WordVec -> Maybe (Word,WordVec)
+uncons vec  
+  | len == 0   = Nothing
+  | otherwise  = Just $ case toList vec of { (w:ws) -> (w , fromList' (Shape (len-1) bits) ws) }
+  where
+    (Shape len bits) = vecShape vec
+
+-- | For testing purposes only
+uncons_naive :: WordVec -> Maybe (Word,WordVec)
+uncons_naive vec = if null vec 
+  then Nothing
+  else Just (head vec, tail vec)
+
+cons :: Word -> WordVec -> WordVec
+cons w vec = fromList' shape' (w : toList vec) where
+  (Shape len bits) = vecShape vec
+  bits'  = max bits (bitsNeededFor w)
+  shape' = Shape (len+1) bits'
 
 --------------------------------------------------------------------------------
 -- * Conversion to\/from lists
@@ -185,6 +228,15 @@ toList_naive dynvec@(WordVec blob)  =
   case isSmall of
     True  -> [ extractSmallWord bits blob ( 8 + bits*i) | i<-[0..len-1] ]
     False -> [ extractSmallWord bits blob (32 + bits*i) | i<-[0..len-1] ]
+  where
+    (isSmall, Shape len bits) = vecShape' dynvec
+
+-- | @toRevList vec == reverse (toList vec)@, but should be faster (?)
+toRevList :: WordVec -> [Word] 
+toRevList dynvec@(WordVec blob)  = 
+  case isSmall of
+    True  -> [ extractSmallWord bits blob ( 8 + bits*(len-i)) | i<-[1..len] ]
+    False -> [ extractSmallWord bits blob (32 + bits*(len-i)) | i<-[1..len] ]
   where
     (isSmall, Shape len bits) = vecShape' dynvec
 
@@ -245,14 +297,17 @@ concat u v = fromList' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
   Shape lv bv = vecShape v
 
 naiveZipWith :: (Word -> Word -> Word) -> WordVec -> WordVec -> WordVec
-naiveZipWith f u v = fromList $ zipWith f (toList u) (toList v)
+naiveZipWith f u v = fromList $ L.zipWith f (toList u) (toList v)
 
 -- | If you have a (nearly sharp) upper bound to the result of your of function
 -- on your vector, zipping can be more efficient 
 boundedZipWith :: Word -> (Word -> Word -> Word) -> WordVec -> WordVec -> WordVec
-boundedZipWith bound f vec1 vec2  = fromList' (Shape l bits) $ zipWith f (toList vec1) (toList vec2) where
+boundedZipWith bound f vec1 vec2  = fromList' (Shape l bits) $ L.zipWith f (toList vec1) (toList vec2) where
   l    = min (vecLen vec1) (vecLen vec2)
   bits = bitsNeededFor bound
+
+listZipWith :: (Word -> Word -> a) -> WordVec -> WordVec -> [a]
+listZipWith f u v = L.zipWith f (toList u) (toList v)
               
 --------------------------------------------------------------------------------
 -- * Misc helpers
