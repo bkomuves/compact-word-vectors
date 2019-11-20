@@ -6,8 +6,8 @@
 -- small vectors of small elements compactly on memory.
 -- 
 -- For example the list @[1..14] :: [Int]@ consumes 576 bytes (72 words) on 
--- a 64 bit machine, while the corresponding dynamic word vector takes only
--- 16 bytes (2 words), and the one corresponding to @[101..114]@ still only 
+-- a 64 bit machine, while the corresponding 'WordVec' takes only
+-- 16 bytes (2 words), and the one corresponding to @[101..115]@ still only 
 -- 24 bytes (3 words).
 --
 -- Unboxed arrays or unboxed vectors are better, as they only have a constant
