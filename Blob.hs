@@ -111,6 +111,35 @@ blobToWordList blob = case blob of
   BlobN ba#         -> foldrByteArray (:) [] (ByteArray ba#)
 
 --------------------------------------------------------------------------------
+-- * conversion to\from 'ByteArray'-s
+
+-- | Note: we pad the input with zero bytes, assuming little-endian architecture.
+blobFromByteArray :: ByteArray -> Blob
+blobFromByteArray ba@(ByteArray ba#)
+  | nwords >  6  = BlobN ba#
+  | nwords == 0  = Blob1 0
+  | otherwise    = blobFromWordListN nwords words
+  where
+    !nbytes  = sizeofByteArray ba
+    !nwords1 = shiftR (nbytes    ) 3 
+    !nwords  = shiftR (nbytes + 7) 3
+
+    words :: [Word64]
+    words = if nwords1 == nwords
+      then foldrByteArray (:) [] (ByteArray ba#)  
+      else let !ofs = shiftL nwords1 3
+               !m =   nbytes - ofs
+               w8_to_w64 :: Word8 -> Word64
+               w8_to_w64 = fromIntegral
+               !lastWord = foldl' (.|.) 0 [ shiftL (w8_to_w64 (indexByteArray ba (ofs + i))) (shiftL i 3) | i<-[0..m-1] ]
+           in  foldrByteArray (:) [] (ByteArray ba#) ++ [lastWord] 
+
+blobToByteArray :: Blob -> ByteArray
+blobToByteArray blob = case blob of
+  BlobN ba#         -> ByteArray ba#
+  _                 -> byteArrayFromListN (blobSizeInWords blob) (blobToWordList blob)
+
+--------------------------------------------------------------------------------
   
 instance Show Blob where
   showsPrec prec blob 
