@@ -75,14 +75,19 @@ toListWithMax (BoundedVec dynvec) = case uncons (Dyn.toList dynvec) of
 fromList :: [Word] -> BoundedVec
 fromList [] = BoundedVec $ Dyn.fromList' (Dyn.Shape    1  4) [0]
 fromList xs = BoundedVec $ Dyn.fromList' (Dyn.Shape (l+1) b) (m:xs) where
-  l = length xs
-  m = maximum xs
+  -- l = length  xs
+  -- m = maximum xs
+  (m,l) = maxLen xs
   b = Dyn.bitsNeededFor m
 
 fromList' :: BndShape -> [Word] -> BoundedVec
 fromList' (BndShape len max) ws = BoundedVec $ Dyn.fromList' (Dyn.Shape (len+1) bits) ws where
   bits = Dyn.bitsNeededFor max
 
+maxLen :: [Word] -> (Word,Word)
+maxLen = go 0 0 where
+  go !cnt !q (x:xs) = go (cnt+1) (max x q) xs
+  go !cnt !q []     = (q,cnt)
 
 --------------------------------------------------------------------------------
 -- * Indexing
