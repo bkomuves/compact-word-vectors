@@ -83,7 +83,7 @@ blobSizeInBits :: Blob -> Int
 blobSizeInBits blob = shiftL (blobSizeInBytes blob) 3
     
 --------------------------------------------------------------------------------
--- * conversion to\/from lists
+-- * Conversion to\/from lists
 
 blobFromWordList :: [Word64] -> Blob
 blobFromWordList ws = blobFromWordListN (length ws) ws
@@ -111,12 +111,15 @@ blobToWordList blob = case blob of
   BlobN ba#         -> foldrByteArray (:) [] (ByteArray ba#)
 
 --------------------------------------------------------------------------------
--- * conversion to\/from 'ByteArray'-s
+-- * Conversion to\/from @ByteArray@-s
 
 -- | Note: we pad the input with zero bytes, assuming little-endian architecture.
 blobFromByteArray :: ByteArray -> Blob
 blobFromByteArray ba@(ByteArray ba#)
-  | nwords >  6  = BlobN ba#
+  | nwords >  6  = if nwords1 == nwords
+                     then BlobN ba#
+                     else let ByteArray new# = byteArrayFromListN nwords words 
+                          in  BlobN new#
   | nwords == 0  = Blob1 0
   | otherwise    = blobFromWordListN nwords words
   where
