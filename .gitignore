@@ -4,3 +4,4 @@ dist
 *.asm
 Blob
 main
+_misc

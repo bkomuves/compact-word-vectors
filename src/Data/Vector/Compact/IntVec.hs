@@ -1,19 +1,21 @@
 
 -- | Signed integer version of dynamic word vectors.
+--
+-- See "Data.Vector.Compact.WordVec" for more details.
 
 {-# LANGUAGE BangPatterns #-}
-module IntVec where
+module Data.Vector.Compact.IntVec where
 
 --------------------------------------------------------------------------------
 
 import Data.Bits
 import Data.List
 
-import Dynamic ( Shape(..) )
-import qualified Dynamic as Dyn
+import Data.Vector.Compact.WordVec ( Shape(..) )
+import qualified Data.Vector.Compact.WordVec as Dyn
 
 --------------------------------------------------------------------------------
--- * The dynamic int vector type
+-- * The dynamic Int vector type
 
 -- | A dynamic int vector is a (small) vector of small signed integers stored compactly
 newtype IntVec 
@@ -118,7 +120,7 @@ concat u v = fromList' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
 -}
   
 --------------------------------------------------------------------------------
--- * helpers for counting necessary bits
+-- * helpers for counting the necessary number of bits
 
 bitsNeededForMinMax :: (Int,Int) -> Int
 bitsNeededForMinMax (p,q) = max (bitsNeededFor p) (bitsNeededFor q)

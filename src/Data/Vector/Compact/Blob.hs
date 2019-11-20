@@ -4,9 +4,9 @@
 -- This library provides a type for blobs consisting 64 bit words 
 -- which is optimized for small sizes. They take:
 --
--- * 1 extra word up for blobs of size up to 48 bytes (6 @Word64@-s)  
+-- * only 1 extra word up for blobs of size up to 48 bytes (that is, up to 6 @Word64@-s);
 --
--- * 4 extra words above that
+-- * but (unfortunataly) 4 extra words above that.
 --
 -- (This particular tradeoff was chosen so that pointer tagging still
 -- works on 64 bit architectures: there are 7 constructors of the data type.)
@@ -22,7 +22,7 @@
 --
 
 {-# LANGUAGE CPP, BangPatterns, MagicHash, UnboxedTuples #-}
-module Blob where
+module Data.Vector.Compact.Blob where
 
 --------------------------------------------------------------------------------
 
@@ -38,7 +38,7 @@ import Control.Monad.ST
 import GHC.Int
 import GHC.Word
 import GHC.Ptr
-import GHC.Prim
+import GHC.Exts
 import GHC.IO
 
 import Foreign.Ptr
@@ -83,7 +83,7 @@ blobSizeInBits :: Blob -> Int
 blobSizeInBits blob = shiftL (blobSizeInBytes blob) 3
     
 --------------------------------------------------------------------------------
--- * conversion to\from lists
+-- * conversion to\/from lists
 
 blobFromWordList :: [Word64] -> Blob
 blobFromWordList ws = blobFromWordListN (length ws) ws
@@ -111,7 +111,7 @@ blobToWordList blob = case blob of
   BlobN ba#         -> foldrByteArray (:) [] (ByteArray ba#)
 
 --------------------------------------------------------------------------------
--- * conversion to\from 'ByteArray'-s
+-- * conversion to\/from 'ByteArray'-s
 
 -- | Note: we pad the input with zero bytes, assuming little-endian architecture.
 blobFromByteArray :: ByteArray -> Blob

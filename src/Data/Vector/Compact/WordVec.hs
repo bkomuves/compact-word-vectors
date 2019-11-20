@@ -12,7 +12,8 @@
 --
 -- Unboxed arrays or unboxed vectors are better, as they only have a constant
 -- overhead, but those constants are big: 13 words (104 bytes on 64 bit)
--- for unboxed arrays, and 6 words (48 bytes) for unboxed vectors.
+-- for unboxed arrays, and 6 words (48 bytes) for unboxed vectors. And you
+-- still have to select the number of bits per element in advance.
 --
 -- Some operations may be a bit slower, but hopefully the cache-friendlyness 
 -- will somewhat balance that (a simple microbenchmark with 'Data.Map'-s
@@ -24,18 +25,18 @@
 -- for some applications
 --
 
-{-# LANGUAGE CPP, BangPatterns #-}
-module Dynamic where
+{-# LANGUAGE BangPatterns #-}
+module Data.Vector.Compact.WordVec where
 
 --------------------------------------------------------------------------------
 
 import Data.Bits
 import Data.Word
 
-import Blob 
+import Data.Vector.Compact.Blob 
 
 --------------------------------------------------------------------------------
--- * The dynamic word vector type
+-- * The dynamic Word vector type
 
 -- | Dynamic word vectors are internally 'Blob'-s, which the first few bits
 -- encoding their shape, and after that their content.
@@ -107,6 +108,7 @@ instance Ord WordVec where
     EQ -> compare (toList x) (toList y)
 
 --------------------------------------------------------------------------------
+-- * Empty vectors
 
 empty :: WordVec
 empty = fromList []
@@ -225,7 +227,7 @@ fromList' (Shape len bits0) words
               in   current' : worker (k-1) (shiftR this (64-bitOfs)) newOfs' rest
 
 --------------------------------------------------------------------------------
--- * some operations
+-- * Some more operations
 
 naiveMap :: (Word -> Word) -> WordVec -> WordVec
 naiveMap f u = fromList (map f $ toList u)
