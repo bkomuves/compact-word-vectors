@@ -35,12 +35,14 @@ Library
                        Data.Vector.Compact.IntVec
                        Data.Vector.Compact.Blob
 
-  Default-Extensions:  CPP, BangPatterns
-  Other-Extensions:    MagicHash, UnboxedTuples
-
   Default-Language:    Haskell2010
+  Default-Extensions:  CPP, BangPatterns
+  Other-Extensions:    MagicHash, ForeignFunctionInterface
 
   Hs-Source-Dirs:      src
+
+  C-Sources:           cbits/blob.c 
+  Include-Dirs:        cbits
 
   ghc-options:         -fwarn-tabs -fno-warn-unused-matches -fno-warn-name-shadowing -fno-warn-unused-imports
 

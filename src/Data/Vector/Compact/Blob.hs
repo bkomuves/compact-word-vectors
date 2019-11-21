@@ -21,7 +21,7 @@
 --  * tables indexed by such things
 --
 
-{-# LANGUAGE CPP, BangPatterns, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE CPP, BangPatterns, MagicHash, ForeignFunctionInterface #-}
 module Data.Vector.Compact.Blob where
 
 --------------------------------------------------------------------------------
@@ -41,8 +41,13 @@ import GHC.Ptr
 import GHC.Exts
 import GHC.IO
 
+import Foreign.C.Types
 import Foreign.Ptr
+import Foreign.Storable
+import Foreign.Marshal
 import Foreign.Marshal.Array
+
+import System.IO.Unsafe as Unsafe
 
 import Control.Monad.Primitive
 import Data.Primitive.ByteArray
@@ -135,7 +140,7 @@ blobFromByteArray ba@(ByteArray ba#)
                w8_to_w64 :: Word8 -> Word64
                w8_to_w64 = fromIntegral
                !lastWord = foldl' (.|.) 0 [ shiftL (w8_to_w64 (indexByteArray ba (ofs + i))) (shiftL i 3) | i<-[0..m-1] ]
-           in  foldrByteArray (:) [] (ByteArray ba#) ++ [lastWord] 
+           in  foldrByteArray (:) [lastWord] (ByteArray ba#)
 
 blobToByteArray :: Blob -> ByteArray
 blobToByteArray blob = case blob of
@@ -143,6 +148,7 @@ blobToByteArray blob = case blob of
   _                 -> byteArrayFromListN (blobSizeInWords blob) (blobToWordList blob)
 
 --------------------------------------------------------------------------------
+-- * Instances
   
 instance Show Blob where
   showsPrec prec blob 
@@ -252,7 +258,17 @@ blobHead blob = case blob of
   Blob5 a _ _ _ _     -> a
   Blob6 a _ _ _ _ _   -> a
   BlobN arr#          -> indexByteArray (ByteArray arr#) 0
-  
+
+blobLast :: Blob -> Word64
+blobLast blob = case blob of
+  Blob1 z             -> z
+  Blob2 _ z           -> z
+  Blob3 _ _ z         -> z
+  Blob4 _ _ _ z       -> z
+  Blob5 _ _ _ _ z     -> z
+  Blob6 _ _ _ _ _ z   -> z
+  BlobN arr#          -> indexByteArray (ByteArray arr#) (blobSizeInWords blob - 1)
+
 --------------------------------------------------------------------------------
 
 -- | @extractSmallWord n blob ofs@ extracts a small word of @n@ bits starting from the
@@ -283,7 +299,78 @@ extractSmallWord64_naive :: Int -> Blob -> Int -> Word64
 extractSmallWord64_naive n blob ofs = sum [ shiftL 1 i | i<-[0..n-1] , testBit blob (ofs+i) ]
 
 --------------------------------------------------------------------------------
--- * change size
+-- * (Indirect) access to the raw data
+
+pokeBlob :: Ptr Word64 -> Blob -> IO Int
+pokeBlob ptr blob = case blob of
+  Blob1 a           -> poke      ptr  a             >> return 1
+  Blob2 a b         -> pokeArray ptr [a,b]          >> return 2
+  Blob3 a b c       -> pokeArray ptr [a,b,c]        >> return 3
+  Blob4 a b c d     -> pokeArray ptr [a,b,c,d]      >> return 4
+  Blob5 a b c d e   -> pokeArray ptr [a,b,c,d,e]    >> return 5
+  Blob6 a b c d e f -> pokeArray ptr [a,b,c,d,e,f]  >> return 6
+  BlobN ba#         -> let !nbytes = I# (sizeofByteArray# ba#)
+                       in  copyByteArrayToPtr ba# 0 ptr nbytes  >> return (shiftR nbytes 3)
+
+peekBlob :: Int -> Ptr Word64 -> IO Blob
+peekBlob n ptr =
+  case n of
+    0 ->                                       return (Blob1 0)
+    1 -> peek        ptr >>= \a             -> return (Blob1 a)
+    2 -> peekArray 2 ptr >>= \[a,b]         -> return (Blob2 a b)
+    3 -> peekArray 3 ptr >>= \[a,b,c]       -> return (Blob3 a b c)
+    4 -> peekArray 4 ptr >>= \[a,b,c,d]     -> return (Blob4 a b c d)
+    5 -> peekArray 5 ptr >>= \[a,b,c,d,e]   -> return (Blob5 a b c d e) 
+    6 -> peekArray 6 ptr >>= \[a,b,c,d,e,f] -> return (Blob6 a b c d e f)
+    _ -> do
+           mut@(MutableByteArray mut#) <- newByteArray (shiftL n 3)
+
+           --forM_ [0..n-1] $ \i -> peekElemOff ptr i >>= writeByteArray mut i 
+           copyPtrToByteArray ptr mut# 0 (shiftL n 3)
+
+           ba@(ByteArray ba#) <- unsafeFreezeByteArray mut
+           return (BlobN ba#)
+
+type CFun1 = CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO ()
+
+-- | Allocate a temporary buffer, copy the content of the Blob there (unfortunately
+-- we have to do this, because the GHC runtime does not allow direct manipulation of the heap,
+-- even though we /know/ the heap layout...); then allocate another temporary buffer of
+-- the given length (measured in words), call the C function which can fill this second
+-- buffer, finally create a new Blob from the content of the second buffer 
+-- (another copying happens here).
+--
+wrapCFun1IO :: CFun1 -> Int -> Blob -> IO Blob
+wrapCFun1IO action m blob = do
+  let !n = blobSizeInWords blob
+  allocaArray n $ \ptr1 -> do
+    pokeBlob ptr1 blob
+    allocaArray m $ \ptr2 -> do
+      alloca $ \q -> do
+        action (fromIntegral n) ptr1 q ptr2
+        k <- peek q
+        peekBlob (fromIntegral k) ptr2
+
+{-# NOINLINE wrapCFun1 #-}
+wrapCFun1 :: CFun1 -> (Int -> Int) -> Blob -> Blob
+wrapCFun1 action f blob = Unsafe.unsafePerformIO $ do
+  let !n = blobSizeInWords blob
+  wrapCFun1IO action (f n) blob 	
+
+--------------------------------------------------------------------------------
+
+foreign import ccall "identity" c_identity :: CFun1       -- for testing
+
+foreign import ccall "tail" c_tail     :: CFun1
+foreign import ccall "cons" c_cons     :: Word64 -> CFun1
+foreign import ccall "snoc" c_snoc     :: Word64 -> CFun1
+
+foreign import ccall "rotate_left"   c_rotate_left  :: CInt -> CFun1
+foreign import ccall "rotate_right"  c_rotate_right :: CInt -> CFun1
+
+
+--------------------------------------------------------------------------------
+-- * Change size
 
 extendToSize :: Int -> Blob -> Blob
 extendToSize tgt blob 
@@ -335,6 +422,7 @@ shortZipWith f !blob1 !blob2
     n1 = blobSizeInWords blob1
     n2 = blobSizeInWords blob2
 
+-- | Extend the shorter blob with zeros
 longZipWith :: (Word64 -> Word64 -> Word64) -> Blob -> Blob -> Blob 
 longZipWith f !blob1 !blob2 
   | n1 == n2   = unsafeZipWith f                  blob1                  blob2 
@@ -344,6 +432,7 @@ longZipWith f !blob1 !blob2
     n1 = blobSizeInWords blob1
     n2 = blobSizeInWords blob2
 
+-- | We assume that the two blobs has the same size!
 unsafeZipWith :: (Word64 -> Word64 -> Word64) -> Blob -> Blob -> Blob 
 unsafeZipWith f !blob1 !blob2 = case (blob1,blob2) of
   ( Blob1 a           , Blob1 p           ) -> Blob1 (f a p)
@@ -373,8 +462,8 @@ instance Bits Blob where
 
   shiftL  = blobShiftL -- error "shiftR"
   shiftR  = blobShiftR -- error "shiftR"
-  rotateL = error "Blob/rotateL: not implemented"
-  rotateR = error "Blob/rotateR: not implemented"
+  rotateL blob k = wrapCFun1 (c_rotate_left  (fromIntegral k)) id blob
+  rotateR blob k = wrapCFun1 (c_rotate_right (fromIntegral k)) id blob
 
 #if MIN_VERSION_base(4,12,0)
   bitSizeMaybe = Just . blobSizeInBits
@@ -410,9 +499,12 @@ blobConsWord !y !blob = case blob of
   Blob3 a b c       -> Blob4 y a b c
   Blob4 a b c d     -> Blob5 y a b c d
   Blob5 a b c d e   -> Blob6 y a b c d e
+  _                 -> wrapCFun1 (c_cons y) (+1) blob
+{-
   Blob6 a b c d e f -> BlobN new# where ByteArray new# = byteArrayFromListN 7 [y,a,b,c,d,e,f]
   BlobN ba#         -> BlobN new# where ByteArray new# = byteArrayFromListN (n+1) (y : baToList# ba#) 
                                         n = baSizeInWords# ba#
+-}
 
 -- | Add a word at the end
 blobSnocWord :: Blob -> Word64 -> Blob
@@ -422,9 +514,13 @@ blobSnocWord !blob !z = case blob of
   Blob3 a b c       -> Blob4 a b c z
   Blob4 a b c d     -> Blob5 a b c d z
   Blob5 a b c d e   -> Blob6 a b c d e z
+  _                 -> wrapCFun1 (c_snoc z) (+1) blob
+{-
   Blob6 a b c d e f -> BlobN new# where ByteArray new# = byteArrayFromListN 7 [a,b,c,d,e,f,z]
   BlobN ba#         -> BlobN new# where ByteArray new# = byteArrayFromListN (n+1) (foldrByteArray (:) [z] (ByteArray ba#))
                                         n = baSizeInWords# ba#
+-}
+
 -- | Remove the first word
 blobTail :: Blob -> Blob 
 blobTail !blob = case blob of
@@ -434,6 +530,8 @@ blobTail !blob = case blob of
   Blob4 _ b c d     -> Blob3 b c d 
   Blob5 _ b c d e   -> Blob4 b c d e 
   Blob6 _ b c d e f -> Blob5 b c d e f 
+  _                 -> wrapCFun1 c_tail id blob
+{-
   BlobN ba#         -> 
     let !n = baSizeInWords# ba#
     in  if n == 7 
@@ -441,6 +539,7 @@ blobTail !blob = case blob of
                in  Blob6 b c d e f g 
           else let ByteArray new# = byteArrayFromListN (n-1) (tail (baToList# ba#))
                in  BlobN new#                        
+-}
 
 --------------------------------------------------------------------------------
 -- * Shift left, shift right
@@ -544,5 +643,14 @@ baSizeInWords ba = shiftR (sizeofByteArray ba) 3
 
 baSizeInWords# :: ByteArray# -> Int
 baSizeInWords# ba# = shiftR (I# (sizeofByteArray# ba#)) 3
+
+-- copyByteArrayToAddr# :: ByteArray# -> Int# -> Addr# -> Int# -> State# s -> State# s
+-- copyAddrToByteArray# :: Addr# -> MutableByteArray# s -> Int# -> Int# -> State# s -> State# s
+
+copyByteArrayToPtr :: ByteArray# -> Int -> Ptr a -> Int -> IO ()
+copyByteArrayToPtr ba (I# ofs) (Ptr p) (I# n) = primitive_ $ copyByteArrayToAddr# ba ofs p n 
+
+copyPtrToByteArray :: Ptr a -> MutableByteArray# (PrimState IO) -> Int -> Int -> IO ()
+copyPtrToByteArray (Ptr p) mba (I# ofs) (I# n) = primitive_ $ copyAddrToByteArray# p mba ofs n
 
 --------------------------------------------------------------------------------

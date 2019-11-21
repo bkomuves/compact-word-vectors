@@ -31,6 +31,14 @@ tests_blobs = testGroup "unit tests for Blobs"
   , testCase "toBA . fromBA == pad"        $ forall_ byte_lists  prop_from_to_bytearray
     -- 
   , testCase "tail . cons == id"           $ forall_ blobs       prop_tail_cons
+    --
+  , testCase "rotateL . rotateR == id"     $ forall_ blobs       prop_rotateL_rotateR
+  , testCase "rotateR . rotateL == id"     $ forall_ blobs       prop_rotateR_rotateL
+  , testCase "rotateL [1]"                 $ forall_ [0..130]    prop_rotateL_one
+  , testCase "rotateR [1]"                 $ forall_ [0..130]    prop_rotateR_one
+  , testCase "rotateL [1,0,0]"             $ forall_ [0..530]    prop_rotateL_one_blob3
+  , testCase "rotateR [0,0,z]"             $ forall_ [0..530]    prop_rotateR_one_blob3
+    --
   , testCase "shiftR_64 . shiftL_64 == id" $ forall_ blobs       prop_shiftR64_shiftL64
   , testCase "shiftL_64 . shiftR_64 = ..." $ forall_ blobs       prop_shiftL64_shiftR64
   , testCase "shiftR . shiftL ~= id"       $ forall_ blobs       prop_shiftR_shiftL
@@ -41,6 +49,10 @@ forall_ xs cond = assertBool "failed" (and (map cond xs))
 
 --------------------------------------------------------------------------------
 -- * inputs
+
+w1,w2 :: Word64
+w1 = 0x1234567890abcdef
+w2 = 0xefcdab9078563412
 
 rndWords1, rndWords2 :: [Word64]
 
@@ -152,6 +164,29 @@ prop_tail_cons         blob  =  blobTail (blobConsWord 0x1234567890abcdef blob) 
 prop_shiftR64_shiftL64 blob  =  shiftR_by64 (shiftL_by64 blob) == blob
 prop_shiftL64_shiftR64 blob  =  shiftL_by64 (shiftR_by64 blob) == blobConsWord 0 (blobTail blob)
 
-prop_shiftR_shiftL blob = and [ shiftR (shiftL blob i) i `eqWithZeros` blob | i<-[0..193] ]
+prop_shiftR_shiftL blob  = and [ shiftR (shiftL blob i) i `eqWithZeros` blob | i<-[0..201] ]
 
+prop_rotateL_rotateR blob = and [ rotateL (rotateR blob i) i == blob | i<-[0..201] ]
+prop_rotateR_rotateL blob = and [ rotateR (rotateL blob i) i == blob | i<-[0..201] ]
+
+prop_rotateL_one i = rotateL (Blob1 1) i == Blob1 (rotateL 1 i)
+prop_rotateR_one i = rotateR (Blob1 1) i == Blob1 (rotateR 1 i)
+
+prop_rotateL_one_blob3 i = x == y where
+  x = blobToWordList $ rotateL (blobFromWordList [1,0,0]) i 
+  y = case divMod i 64 of 
+    (q0,r) -> case (mod q0 3, r) of
+      (0,r)  -> [ shiftL 1 r , 0 , 0 ] 
+      (1,r)  -> [ 0 , shiftL 1 r , 0 ]  
+      (2,r)  -> [ 0 , 0 , shiftL 1 r ]
+
+prop_rotateR_one_blob3 i = x == y where 
+  x = blobToWordList $ rotateR (blobFromWordList [0,0,z]) i 
+  z = shiftL 1 63
+  y = case divMod i 64 of 
+    (q0,r) -> case (mod q0 3, r) of 
+      (0,r)  -> [ 0 , 0 , shiftR z r ] 
+      (1,r)  -> [ 0 , shiftR z r , 0 ]  
+      (2,r)  -> [ shiftR z r , 0 , 0 ]
+ 
 --------------------------------------------------------------------------------
