@@ -371,10 +371,10 @@ instance Bits Blob where
   xor   = longZipWith  xor
   complement = mapBlob complement
 
-  shiftL  = error "shiftR"
-  shiftR  = error "shiftR"
-  rotateL = error "rotateL"
-  rotateR = error "rotateR"
+  shiftL  = blobShiftL -- error "shiftR"
+  shiftR  = blobShiftR -- error "shiftR"
+  rotateL = error "Blob/rotateL: not implemented"
+  rotateR = error "Blob/rotateR: not implemented"
 
 #if MIN_VERSION_base(4,12,0)
   bitSizeMaybe = Just . blobSizeInBits
@@ -400,4 +400,149 @@ instance FiniteBits Blob where
 #endif
 
 --------------------------------------------------------------------------------
+-- * Cons, Snoc, tail
+
+-- | Add a word at the start
+blobConsWord :: Word64 -> Blob -> Blob
+blobConsWord !y !blob = case blob of
+  Blob1 a           -> Blob2 y a
+  Blob2 a b         -> Blob3 y a b
+  Blob3 a b c       -> Blob4 y a b c
+  Blob4 a b c d     -> Blob5 y a b c d
+  Blob5 a b c d e   -> Blob6 y a b c d e
+  Blob6 a b c d e f -> BlobN new# where ByteArray new# = byteArrayFromListN 7 [y,a,b,c,d,e,f]
+  BlobN ba#         -> BlobN new# where ByteArray new# = byteArrayFromListN (n+1) (y : baToList# ba#) 
+                                        n = baSizeInWords# ba#
+
+-- | Add a word at the end
+blobSnocWord :: Blob -> Word64 -> Blob
+blobSnocWord !blob !z = case blob of
+  Blob1 a           -> Blob2 a z
+  Blob2 a b         -> Blob3 a b z
+  Blob3 a b c       -> Blob4 a b c z
+  Blob4 a b c d     -> Blob5 a b c d z
+  Blob5 a b c d e   -> Blob6 a b c d e z
+  Blob6 a b c d e f -> BlobN new# where ByteArray new# = byteArrayFromListN 7 [a,b,c,d,e,f,z]
+  BlobN ba#         -> BlobN new# where ByteArray new# = byteArrayFromListN (n+1) (foldrByteArray (:) [z] (ByteArray ba#))
+                                        n = baSizeInWords# ba#
+-- | Remove the first word
+blobTail :: Blob -> Blob 
+blobTail !blob = case blob of
+  Blob1 _           -> Blob1 0
+  Blob2 _ b         -> Blob1 b 
+  Blob3 _ b c       -> Blob2 b c
+  Blob4 _ b c d     -> Blob3 b c d 
+  Blob5 _ b c d e   -> Blob4 b c d e 
+  Blob6 _ b c d e f -> Blob5 b c d e f 
+  BlobN ba#         -> 
+    let !n = baSizeInWords# ba#
+    in  if n == 7 
+          then let [b,c,d,e,f,g]  = tail (baToList# ba#)
+               in  Blob6 b c d e f g 
+          else let ByteArray new# = byteArrayFromListN (n-1) (tail (baToList# ba#))
+               in  BlobN new#                        
+
+--------------------------------------------------------------------------------
+-- * Shift left, shift right
+
+blobShiftL :: Blob -> Int -> Blob
+blobShiftL blob  0 = blob
+blobShiftL blob !n = flip shiftL_small r $ go q blob where
+  (q,r) = divMod n 64
+  go !0  blob = blob
+  go !k !blob = go (k-1) (shiftL_by64 blob)
+
+blobShiftR :: Blob -> Int -> Blob
+blobShiftR blob  0 = blob
+blobShiftR blob !n = flip shiftR_small r $ go q blob where
+  (q,r) = divMod n 64
+  go !0  blob = blob
+  go !k !blob = go (k-1) (shiftR_by64 blob)
+
+-- | shifts lefts, and uses the given word the fill the resulting 0 bits
+shiftLeftAndFill :: Blob -> Int -> Word64 -> Blob
+shiftLeftAndFill blob 0  word = blob 
+shiftLeftAndFill blob !n word = go q (shiftL_small_and_fill blob r word)     -- incorrect!!! consider 65 bits
+  where
+    (q,r) = divMod n 64
+    go !0  blob = blob
+    go !k !blob = go (k-1) (shiftL_by64 blob)
   
+-- | Shift left by 64 bits
+shiftL_by64 :: Blob -> Blob
+shiftL_by64 = blobConsWord 0
+
+-- | Shift right by 64 bits
+shiftR_by64 :: Blob -> Blob
+shiftR_by64 = blobTail
+
+-- | Shift left by less than 64 bits
+shiftL_small :: Blob -> Int -> Blob
+shiftL_small blob k = shiftL_small_and_fill blob k 0 
+
+-- | Shift left by less than 64 bits, and fills the resulting 0 bits using the given word
+shiftL_small_and_fill :: Blob -> Int -> Word64-> Blob
+shiftL_small_and_fill !blob  0  _    = blob
+shiftL_small_and_fill !blob !k !word = 
+
+  case blob of
+    Blob1 a            -> Blob2  (shiftL a k .|. w1) (shiftR a r)
+    Blob2 a b          -> Blob3  (shiftL a k .|. w1) (shiftR a r .|. shiftL b k) (shiftR b r)
+    Blob3 a b c        -> Blob4  (shiftL a k .|. w1) (shiftR a r .|. shiftL b k) (shiftR b r .|. shiftL c k) (shiftR c r)
+    Blob4 a b c d      -> Blob5  (shiftL a k .|. w1) (shiftR a r .|. shiftL b k) (shiftR b r .|. shiftL c k) (shiftR c r .|. shiftL d k) (shiftR d r)
+    Blob5 a b c d e    -> Blob6  (shiftL a k .|. w1) (shiftR a r .|. shiftL b k) (shiftR b r .|. shiftL c k) (shiftR c r .|. shiftL d k) (shiftR d r .|. shiftL e k) (shiftR e r)
+    Blob6 a b c d e f  -> let l=[(shiftL a k .|. w1),(shiftR a r .|. shiftL b k),(shiftR b r .|. shiftL c k),(shiftR c r .|. shiftL d k),(shiftR d r .|. shiftL e k),(shiftR e r .|. shiftL f k),(shiftR f r)]
+                              ByteArray new# = byteArrayFromListN 7 l
+                          in  BlobN new#                             
+  
+    BlobN ba# -> BlobN new# where     
+      !n = baSizeInWords# ba# 
+      ByteArray new# = byteArrayFromListN (n+1) 
+                     $ worker (shiftL word r) (baToList# ba#)
+
+  where
+    !r = 64 - k  
+    mask = shiftL 2 k - 1
+    w1   = word .&. mask
+
+    worker !prev (x:xs) = (shiftL x k .|. shiftR prev r) : worker x xs
+    worker !prev []     = (               shiftR prev r) : []
+
+-- | Shift right by less than 64 bits
+shiftR_small :: Blob -> Int -> Blob
+shiftR_small !blob  0 = blob
+shiftR_small !blob !k = 
+
+  case blob of                  
+    Blob1 a            -> Blob1 (shiftR a k)
+    Blob2 a b          -> Blob2 (shiftR a k .|. shiftL b r) (shiftR b k)
+    Blob3 a b c        -> Blob3 (shiftR a k .|. shiftL b r) (shiftR b k .|. shiftL c r) (shiftR c k)
+    Blob4 a b c d      -> Blob4 (shiftR a k .|. shiftL b r) (shiftR b k .|. shiftL c r) (shiftR c k .|. shiftL d r) (shiftR d k)
+    Blob5 a b c d e    -> Blob5 (shiftR a k .|. shiftL b r) (shiftR b k .|. shiftL c r) (shiftR c k .|. shiftL d r) (shiftR d k .|. shiftL e r) (shiftR e k)
+    Blob6 a b c d e f  -> Blob6 (shiftR a k .|. shiftL b r) (shiftR b k .|. shiftL c r) (shiftR c k .|. shiftL d r) (shiftR d k .|. shiftL e r) (shiftR e k .|. shiftL f r) (shiftR f k)
+    BlobN ba#          -> BlobN new# where     
+      !n = baSizeInWords# ba# 
+      ByteArray new# = case baToList# ba# of (x:xs) -> byteArrayFromListN n (worker x xs)
+
+  where
+    !r = 64 - k  
+
+    worker !this (y:ys) = (shiftR this k .|. shiftL y r) : worker y ys
+    worker !this []     = (shiftR this k               ) : []
+
+--------------------------------------------------------------------------------
+-- * ByteArray helpers
+
+baToList :: ByteArray -> [Word64]
+baToList = foldrByteArray (:) [] 
+
+baToList# :: ByteArray# -> [Word64]
+baToList# ba# = foldrByteArray (:) [] (ByteArray ba#)
+
+baSizeInWords :: ByteArray -> Int
+baSizeInWords ba = shiftR (sizeofByteArray ba) 3
+
+baSizeInWords# :: ByteArray# -> Int
+baSizeInWords# ba# = shiftR (I# (sizeofByteArray# ba#)) 3
+
+--------------------------------------------------------------------------------
