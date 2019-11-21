@@ -162,6 +162,15 @@ head dynvec@(WordVec blob) =
   where
     bits = vecBits dynvec
 
+last :: WordVec -> Word
+last dynvec@(WordVec blob) 
+  | len == 0   = 0
+  | otherwise  = case isSmall of
+    True  -> extractSmallWord bits blob ( 8 + bits*(len-1))
+    False -> extractSmallWord bits blob (32 + bits*(len-1))
+  where
+    (isSmall, Shape len bits) = vecShape' dynvec
+
 tail :: WordVec -> WordVec
 tail dynvec 
   | len == 0   = empty

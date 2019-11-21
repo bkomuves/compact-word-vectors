@@ -149,6 +149,10 @@ head :: IntVec -> Int
 head (IntVec dynvec) = word2int bits (Dyn.head dynvec) where
   !bits = Dyn.vecBits dynvec
 
+last :: IntVec -> Int
+last (IntVec dynvec) = word2int bits (Dyn.last dynvec) where
+  !bits = Dyn.vecBits dynvec
+
 tail :: IntVec -> IntVec
 tail (IntVec dynvec) = IntVec (Dyn.tail dynvec)
 

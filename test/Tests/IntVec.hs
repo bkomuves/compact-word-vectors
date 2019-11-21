@@ -34,6 +34,9 @@ all_tests = testGroup "unit tests for IntVec-s"
 
 tests_unit = testGroup "misc unit tests"
   [ testCase "equality with different bit sizes" $ assertBool "failed" $ check_eq_bitsizes
+  , testCase "head of empty == 0"                $ assertBool "failed" $ (V.head V.empty == 0)
+  , testCase "last of empty == 0"                $ assertBool "failed" $ (V.last V.empty == 0)
+  , testCase "tail of empty == empty"            $ assertBool "failed" $ (V.tail V.empty == V.empty)  
   ]
 
 tests_small = testGroup "unit tests for small dynamic int vectors"
@@ -42,6 +45,7 @@ tests_small = testGroup "unit tests for small dynamic int vectors"
   , testCase "fromList vs. indexing"         $ forall_ small_Lists   prop_fromlist_vs_index
   , testCase "toRevList == reverse . toList" $ forall_ small_Vecs    prop_toRevList
   , testCase "vec head vs. list head"        $ forall_ small_NELists prop_head_of_list
+  , testCase "vec last vs. list last"        $ forall_ small_NELists prop_last_of_list
   , testCase "head vs. indexing"             $ forall_ small_NEVecs  prop_head_vs_index
   , testCase "cons . uncons == id"           $ forall_ small_NEVecs  prop_cons_uncons
   , testCase "uncons . cons == id"           $ forall_ small_cons    prop_uncons_cons
@@ -56,6 +60,7 @@ tests_bighead = testGroup "unit tests for small dynamic int vectors with big hea
   , testCase "fromList vs. indexing"         $ forall_ bighead_Lists   prop_fromlist_vs_index
   , testCase "toRevList == reverse . toList" $ forall_ bighead_Vecs    prop_toRevList
   , testCase "vec head vs. list head"        $ forall_ bighead_NELists prop_head_of_list
+  , testCase "vec last vs. list last"        $ forall_ bighead_NELists prop_last_of_list
   , testCase "head vs. indexing"             $ forall_ bighead_NEVecs  prop_head_vs_index
   , testCase "cons . uncons == id"           $ forall_ bighead_NEVecs  prop_cons_uncons
   , testCase "uncons . cons == id"           $ forall_ bighead_cons    prop_uncons_cons
@@ -129,6 +134,7 @@ prop_fromlist_vs_index (List list) = [ unsafeIndex i vec | i<-[0..n-1] ] == list
 prop_toRevList (Vec vec) = V.toRevList vec == reverse (V.toList vec)
 
 prop_head_of_list  (NEList list) = V.head (V.fromList list) == L.head list
+prop_last_of_list  (NEList list) = V.last (V.fromList list) == L.last list
 prop_head_vs_index (NEVec  vec ) = V.head vec == unsafeIndex 0 vec
 
 prop_cons_uncons (NEVec vec)    =  liftM (uncurry V.cons) (V.uncons vec) == Just vec
