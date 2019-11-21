@@ -47,6 +47,7 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
   , testCase "toRevList == reverse . toList" $ forall_ small_Vecs    prop_toRevList
   , testCase "vec head vs. list head"        $ forall_ small_NELists prop_head_of_list
   , testCase "vec last vs. list last"        $ forall_ small_NELists prop_last_of_list
+  , testCase "vec tail vs. list tail"        $ forall_ small_NEVecs  prop_tail_of_list
   , testCase "head vs. indexing"             $ forall_ small_NEVecs  prop_head_vs_index
   , testCase "cons . uncons == id"           $ forall_ small_NEVecs  prop_cons_uncons
   , testCase "uncons . cons == id"           $ forall_ small_cons    prop_uncons_cons
@@ -63,6 +64,7 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
   , testCase "toRevList == reverse . toList" $ forall_ bighead_Vecs    prop_toRevList
   , testCase "vec head vs. list head"        $ forall_ bighead_NELists prop_head_of_list
   , testCase "vec last vs. list last"        $ forall_ bighead_NELists prop_last_of_list
+  , testCase "vec tail vs. list tail"        $ forall_ bighead_NEVecs  prop_tail_of_list
   , testCase "head vs. indexing"             $ forall_ bighead_NEVecs  prop_head_vs_index
   , testCase "cons . uncons == id"           $ forall_ bighead_NEVecs  prop_cons_uncons
   , testCase "uncons . cons == id"           $ forall_ bighead_cons    prop_uncons_cons
@@ -135,6 +137,7 @@ prop_fromlist_vs_index (List list) = [ unsafeIndex i vec | i<-[0..n-1] ] == list
 
 prop_head_of_list  (NEList list) = V.head (V.fromList list) == L.head list
 prop_last_of_list  (NEList list) = V.last (V.fromList list) == L.last list
+prop_tail_of_list  (NEVec  vec ) = V.toList (V.tail vec) == L.tail (V.toList vec)
 prop_head_vs_index (NEVec  vec ) = V.head vec == unsafeIndex 0 vec
 
 prop_cons_uncons (NEVec vec)    =  liftM (uncurry V.cons) (V.uncons vec) == Just vec
