@@ -41,7 +41,9 @@ tests_blobs = testGroup "unit tests for Blobs"
     --
   , testCase "shiftR_64 . shiftL_64 == id" $ forall_ blobs       prop_shiftR64_shiftL64
   , testCase "shiftL_64 . shiftR_64 = ..." $ forall_ blobs       prop_shiftL64_shiftR64
+  , testCase "shiftR 64 == tail"           $ forall_ blobs       prop_shiftR64_is_tail
   , testCase "shiftR . shiftL ~= id"       $ forall_ blobs       prop_shiftR_shiftL
+  , testCase "shiftL [1]"                  $ forall_ [0..530]    prop_shiftL_one
   ]
 
 forall_ :: [a] -> (a -> Bool) -> Assertion
@@ -161,8 +163,9 @@ prop_from_to_bytearray list = baToByteList (blobToByteArray (blobFromByteArray b
 --------------------------------------------------------------------------------
 
 prop_tail_cons         blob  =  blobTail (blobConsWord 0x1234567890abcdef blob) == blob
-prop_shiftR64_shiftL64 blob  =  shiftR_by64 (shiftL_by64 blob) == blob
-prop_shiftL64_shiftR64 blob  =  shiftL_by64 (shiftR_by64 blob) == blobConsWord 0 (blobTail blob)
+prop_shiftR64_is_tail  blob  =  (shiftR blob 64) == blobTail blob
+prop_shiftR64_shiftL64 blob  =  shiftR (shiftL blob 64) 64 == blob
+prop_shiftL64_shiftR64 blob  =  shiftL (shiftR blob 64) 64 == blobConsWord 0 (blobTail blob)
 
 prop_shiftR_shiftL blob  = and [ shiftR (shiftL blob i) i `eqWithZeros` blob | i<-[0..201] ]
 
@@ -188,5 +191,11 @@ prop_rotateR_one_blob3 i = x == y where
       (0,r)  -> [ 0 , 0 , shiftR z r ] 
       (1,r)  -> [ 0 , shiftR z r , 0 ]  
       (2,r)  -> [ shiftR z r , 0 , 0 ]
+
+prop_shiftL_one i = x == y where
+  x = blobToWordList $ shiftL (Blob1 1) i 
+  y = case divMod i 64 of 
+    (q,r) -> replicate q 0 ++ [shiftL 1 r]
+
  
 --------------------------------------------------------------------------------
