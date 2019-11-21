@@ -9,7 +9,7 @@ For vectors of non-negative integers, see the module `WordVec`; for signed
 integers (which is a bit slower) see `IntVec`. The underlying raw binary storage
 is implemented in `Blob`.
 
-For example the list `[1..14] :: [Int]` consumes 576 bytes (72 words) on 
+For example the list `[1..14] :: [Int]` consumes 560 bytes (70 words) on 
 a 64 bit machine, while the corresponding `WordVec` takes only
 16 bytes (2 words), and the one corresponding to `[101..115]` still only 
 24 bytes (3 words).

@@ -5,7 +5,7 @@
 -- This is data structure engineered to store large amount of 
 -- small vectors of small elements compactly on memory.
 -- 
--- For example the list @[1..14] :: [Int]@ consumes 576 bytes (72 words) on 
+-- For example the list @[1..14] :: [Int]@ consumes 560 bytes (14x5=70 words) on 
 -- a 64 bit machine, while the corresponding 'WordVec' takes only
 -- 16 bytes (2 words), and the one corresponding to @[101..115]@ still only 
 -- 24 bytes (3 words).
