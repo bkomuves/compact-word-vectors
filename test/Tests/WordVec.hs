@@ -48,6 +48,9 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
   , testCase "vec head vs. list head"        $ forall_ small_NELists prop_head_of_list
   , testCase "vec last vs. list last"        $ forall_ small_NELists prop_last_of_list
   , testCase "vec tail vs. list tail"        $ forall_ small_NEVecs  prop_tail_of_list
+  , testCase "tail_v1 vs. tail_v2"           $ forall_ small_Vecs    prop_tail_v1_vs_v2
+  , testCase "cons_v1 vs. cons_v2"           $ forall_ small_cons    prop_cons_v1_vs_v2
+  , testCase "uncons_v1 vs. uncons_v2"       $ forall_ small_Vecs    prop_uncons_v1_vs_v2
   , testCase "head vs. indexing"             $ forall_ small_NEVecs  prop_head_vs_index
   , testCase "cons . uncons == id"           $ forall_ small_NEVecs  prop_cons_uncons
   , testCase "uncons . cons == id"           $ forall_ small_cons    prop_uncons_cons
@@ -65,6 +68,9 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
   , testCase "vec head vs. list head"        $ forall_ bighead_NELists prop_head_of_list
   , testCase "vec last vs. list last"        $ forall_ bighead_NELists prop_last_of_list
   , testCase "vec tail vs. list tail"        $ forall_ bighead_NEVecs  prop_tail_of_list
+  , testCase "tail_v1 vs. tail_v2"           $ forall_ bighead_Vecs    prop_tail_v1_vs_v2
+  , testCase "cons_v1 vs. cons_v2"           $ forall_ bighead_cons    prop_cons_v1_vs_v2
+  , testCase "uncons_v1 vs. uncons_v2"       $ forall_ bighead_Vecs    prop_uncons_v1_vs_v2
   , testCase "head vs. indexing"             $ forall_ bighead_NEVecs  prop_head_vs_index
   , testCase "cons . uncons == id"           $ forall_ bighead_NEVecs  prop_cons_uncons
   , testCase "uncons . cons == id"           $ forall_ bighead_cons    prop_uncons_cons
@@ -152,3 +158,16 @@ unconsToList mb = case mb of
   Just (w,vec) -> Just (w, V.toList vec)
 
 --------------------------------------------------------------------------------
+
+prop_tail_v1_vs_v2      (Vec vec)   =  tail_v1   vec == tail_v2   vec
+prop_cons_v1_vs_v2   (y,(Vec vec))  =  cons_v1 y vec == cons_v2 y vec
+prop_uncons_v1_vs_v2    (Vec vec )  =  uncons_v1 vec == uncons_v2 vec
+
+{-
+bad_tail = [    vec  |    Vec vec  <- bighead_Vecs , tail_v1   vec /= tail_v2   vec ]
+bad_cons = [ (y,vec) | (y,Vec vec) <- bighead_cons , cons_v1 y vec /= cons_v2 y vec ]
+-}
+
+--------------------------------------------------------------------------------
+
+bad_cons_uncons = [ vec | NEVec vec <- bighead_NEVecs ,  liftM (uncurry V.cons) (V.uncons vec) /= Just vec ]

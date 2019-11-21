@@ -42,6 +42,7 @@ Library
   Hs-Source-Dirs:      src
 
   C-Sources:           cbits/blob.c 
+                       cbits/wordvec.c
   Include-Dirs:        cbits
 
   ghc-options:         -fwarn-tabs -fno-warn-unused-matches -fno-warn-name-shadowing -fno-warn-unused-imports

@@ -27,7 +27,7 @@
 -- potentially useful for some applications 
 --
 
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, ForeignFunctionInterface #-}
 module Data.Vector.Compact.WordVec where
 
 --------------------------------------------------------------------------------
@@ -37,6 +37,8 @@ import qualified Data.List as L
 
 import Data.Bits
 import Data.Word
+
+import Foreign.C
 
 import Data.Vector.Compact.Blob 
 
@@ -171,31 +173,68 @@ last dynvec@(WordVec blob)
   where
     (isSmall, Shape len bits) = vecShape' dynvec
 
-tail :: WordVec -> WordVec
-tail dynvec 
+--------------------------------------------------------------------------------
+
+tail   = tail_v2
+cons   = cons_v2
+uncons = uncons_v2
+
+--------------------------------------------------------------------------------
+
+tail_v1 :: WordVec -> WordVec
+tail_v1 dynvec 
   | len == 0   = empty
   | otherwise  = fromList' (Shape (len-1) bits) (L.tail $ toList dynvec)
   where
     (Shape len bits) = vecShape dynvec
 
-uncons :: WordVec -> Maybe (Word,WordVec)
-uncons vec  
+uncons_v1 :: WordVec -> Maybe (Word,WordVec)
+uncons_v1 vec  
   | len == 0   = Nothing
   | otherwise  = Just $ case toList vec of { (w:ws) -> (w , fromList' (Shape (len-1) bits) ws) }
   where
     (Shape len bits) = vecShape vec
 
+
+cons_v1 :: Word -> WordVec -> WordVec
+cons_v1 w vec = fromList' shape' (w : toList vec) where
+  (Shape len bits) = vecShape vec
+  bits'  = max bits (bitsNeededFor w)
+  shape' = Shape (len+1) bits'
+
+--------------------------------------------------------------------------------
+
+tail_naive :: WordVec -> WordVec
+tail_naive vec = if null vec
+  then empty
+  else fromList $ L.tail $ toList vec
+
 -- | For testing purposes only
 uncons_naive :: WordVec -> Maybe (Word,WordVec)
 uncons_naive vec = if null vec 
   then Nothing
-  else Just (head vec, tail vec)
+  else Just (head vec, tail_naive vec)
 
-cons :: Word -> WordVec -> WordVec
-cons w vec = fromList' shape' (w : toList vec) where
-  (Shape len bits) = vecShape vec
-  bits'  = max bits (bitsNeededFor w)
-  shape' = Shape (len+1) bits'
+--------------------------------------------------------------------------------
+
+foreign import ccall "vec_identity" c_vec_identity :: CFun1       -- for testing
+foreign import ccall "vec_tail"     c_vec_tail     :: CFun1
+foreign import ccall "vec_cons"     c_vec_cons     :: Word64 -> CFun1
+
+tail_v2 :: WordVec -> WordVec
+tail_v2 (WordVec blob) = WordVec $ wrapCFun1 c_vec_tail id blob
+
+cons_v2 :: Word -> WordVec -> WordVec
+cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun1 (c_vec_cons (fromIntegral y)) f blob where
+  f !n = max (n+1) worstcase
+  len  = vecLen vec
+  worstcase = shiftR (32 + bitsNeededFor y * (len+1) + 63) 6
+  -- it can happen that we cons (2^64-1) to a long vector of 4 bit numbers...
+
+uncons_v2 :: WordVec -> Maybe (Word,WordVec)
+uncons_v2 vec = if null vec 
+  then Nothing
+  else Just (head vec, tail_v2 vec)
 
 --------------------------------------------------------------------------------
 -- * Conversion to\/from lists
@@ -322,7 +361,10 @@ listZipWith f u v = L.zipWith f (toList u) (toList v)
 -- * Misc helpers
 
 bitsNeededFor :: Word -> Int
-bitsNeededFor bound = ceilingLog2 (bound + 1) where      -- for example, if maximum is 16, log2 = 4 but we need 5 bits
+bitsNeededFor = roundBits . bitsNeededFor'
+
+bitsNeededFor' :: Word -> Int
+bitsNeededFor' bound = ceilingLog2 (bound + 1) where      -- for example, if maximum is 16, log2 = 4 but we need 5 bits
 
   -- | Smallest integer @k@ such that @2^k@ is larger or equal to @n@
   ceilingLog2 :: Word -> Int
@@ -330,6 +372,11 @@ bitsNeededFor bound = ceilingLog2 (bound + 1) where      -- for example, if maxi
   ceilingLog2 n = 1 + go (n-1) where
     go 0 = -1
     go k = 1 + go (shiftR k 1)
+
+-- | We only allow multiples of 4.
+roundBits :: Int -> Int
+roundBits 0 = 4
+roundBits k = shiftL (shiftR (k+3) 2) 2
 
 --------------------------------------------------------------------------------
 
