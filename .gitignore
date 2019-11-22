@@ -1,7 +1,3 @@
 dist
-*.hi
-*.o
-*.asm
-Blob
-main
+dist-newstyle
 _misc
