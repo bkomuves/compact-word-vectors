@@ -203,15 +203,15 @@ cons_v1 w vec = fromList' shape' (w : toList vec) where
 
 --------------------------------------------------------------------------------
 
-foreign import ccall "vec_identity" c_vec_identity :: CFun11       -- for testing
-foreign import ccall "vec_tail"     c_vec_tail     :: CFun11
-foreign import ccall "vec_cons"     c_vec_cons     :: Word64 -> CFun11
+foreign import ccall "vec_identity" c_vec_identity :: CFun11_       -- for testing
+foreign import ccall "vec_tail"     c_vec_tail     :: CFun11_
+foreign import ccall "vec_cons"     c_vec_cons     :: Word64 -> CFun11_
 
 tail_v2 :: WordVec -> WordVec
-tail_v2 (WordVec blob) = WordVec $ wrapCFun11 c_vec_tail id blob
+tail_v2 (WordVec blob) = WordVec $ wrapCFun11_ c_vec_tail id blob
 
 cons_v2 :: Word -> WordVec -> WordVec
-cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun11 (c_vec_cons (fromIntegral y)) f blob where
+cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_cons (fromIntegral y)) f blob where
   f !n = max (n+1) worstcase
   len  = vecLen vec
   worstcase = shiftR (32 + bitsNeededFor y * (len+1) + 63) 6
@@ -255,15 +255,6 @@ toList dynvec@(WordVec blob) =
                       !elem = mask (this .|. shiftL that (64-bitOfs)) 
                   in  elem : worker newOfs' (k-1) (shiftR that newOfs' : rest') 
                 [] -> error "WordVec/toList: FATAL ERROR! this should not happen"
-                
--- | Another implementation of 'toList', for testing purposes only
-toList_naive :: WordVec -> [Word]
-toList_naive dynvec@(WordVec blob)  = 
-  case isSmall of
-    True  -> [ extractSmallWord bits blob ( 8 + bits*i) | i<-[0..len-1] ]
-    False -> [ extractSmallWord bits blob (32 + bits*i) | i<-[0..len-1] ]
-  where
-    (isSmall, Shape len bits) = vecShape' dynvec
 
 -- | @toRevList vec == reverse (toList vec)@, but should be faster (?)
 toRevList :: WordVec -> [Word] 
@@ -281,7 +272,16 @@ fromList [] = fromList' (Shape 0 4) []
 fromList xs = fromList' (Shape l b) xs where
   l = length xs
   b = bitsNeededFor (L.maximum xs)
-  
+
+-- | This is faster than 'fromList'
+fromListN
+ :: Int       -- ^ length
+ -> Word      -- ^ maximum (or just an upper bound)
+ -> [Word]    -- ^ elements
+ -> WordVec
+fromListN len max = fromList' (Shape len (bitsNeededFor max))
+ 
+-- | If you know the shape in advance, it\'s faster to use this function 
 fromList' :: Shape -> [Word] -> WordVec
 fromList' (Shape len bits0) words
   | bits <= 16 && len <= 31  = WordVec $ mkBlob (mkHeader 0 2)  8 words
@@ -313,19 +313,31 @@ fromList' (Shape len bits0) words
               in   current' : worker (k-1) (shiftR this (64-bitOfs)) newOfs' rest
 
 --------------------------------------------------------------------------------
--- * Specialized folds (these are faster than the generic operations below)
+-- * Specialized folds 
+--
+-- $folds
+--
+-- These are are faster than the generic operations below, and should be preferred.
+--
+
+-- | Sum of the elements of the vector
+sum :: WordVec -> Word
+sum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_sum blob
+
+-- | Maximum of the elements of the vector
+maximum :: WordVec -> Word
+maximum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_max blob
 
 foreign import ccall "vec_sum" c_vec_sum :: CFun10 Word64
 foreign import ccall "vec_max" c_vec_max :: CFun10 Word64
 
-sum :: WordVec -> Word
-sum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_sum blob
-
-maximum :: WordVec -> Word
-maximum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_max blob
-
 --------------------------------------------------------------------------------
--- * Zipping folds (these are faster than the generic operations below)
+-- * Specialized zipping folds 
+--
+-- $zipfolds
+--
+-- These are are faster than the generic operations below, and should be preferred.
+--
 
 foreign import ccall "vec_equal_strict"  c_equal_strict  :: CFun20 CInt
 foreign import ccall "vec_equal_extzero" c_equal_extzero :: CFun20 CInt
@@ -346,11 +358,32 @@ lessOrEqual (WordVec blob1) (WordVec blob2) = (0 /= wrapCFun20 c_less_or_equal b
 
 -- | Pointwise comparison of partial sums of vectors extended with zeros to infinity
 -- 
--- For example @[x1,x2,x3] <= [y1,y2,y3]@ iff (@x1 <=y1 @ and @x1+x2 <= y1+y2@ and @x1+x2+x3 <= y1+y2+y3@).
+-- For example @[x1,x2,x3] <= [y1,y2,y3]@ iff (@x1 <=y1 && x1+x2 <= y1+y2 && x1+x2+x3 <= y1+y2+y3@).
 --
 partialSumsLessOrEqual :: WordVec -> WordVec -> Bool
 partialSumsLessOrEqual (WordVec blob1) (WordVec blob2) =
   (0 /= wrapCFun20 c_partial_sums_less_or_equal blob1 blob2)
+
+--------------------------------------------------------------------------------
+-- * Specialized zips
+--
+-- $zips
+--
+-- These are are faster than the generic operations below, and should be preferred.
+--
+
+foreign import ccall "vec_add"  c_vec_add  :: CFun21_
+
+-- | Pointwise addition of vectors. The shorter one is extended by zeros.
+add :: WordVec -> WordVec -> WordVec
+add vec1@(WordVec blob1) vec2@(WordVec blob2) = WordVec $ wrapCFun21_ c_vec_add f blob1 blob2 where
+  -- WARNING! memory allocation is _very_ tricky here!
+  -- worst case: we have a very long vector with 4 bits/elem,
+  -- and a very short vector with 64 bits/elem!
+  -- even @max b1 b2@ is not enough, because it can overflow...
+  f _ _ = 1 + shiftR ( (max b1 b2 + 4)*(max l1 l2) + 63 ) 6
+  Shape !l1 !b1 = vecShape vec1
+  Shape !l2 !b2 = vecShape vec2
 
 --------------------------------------------------------------------------------
 -- * Some generic operations
@@ -393,14 +426,16 @@ bitsNeededFor :: Word -> Int
 bitsNeededFor = roundBits . bitsNeededFor'
 
 bitsNeededFor' :: Word -> Int
-bitsNeededFor' bound = ceilingLog2 (bound + 1) where      -- for example, if maximum is 16, log2 = 4 but we need 5 bits
-
-  -- | Smallest integer @k@ such that @2^k@ is larger or equal to @n@
-  ceilingLog2 :: Word -> Int
-  ceilingLog2 0 = 0
-  ceilingLog2 n = 1 + go (n-1) where
-    go 0 = -1
-    go k = 1 + go (shiftR k 1)
+bitsNeededFor' bound 
+  | bound+1 == 0  = 64
+  | otherwise     = ceilingLog2 (bound + 1)       -- for example, if maximum is 16, log2 = 4 but we need 5 bits 
+  where    
+    -- | Smallest integer @k@ such that @2^k@ is larger or equal to @n@
+    ceilingLog2 :: Word -> Int
+    ceilingLog2 0 = 0
+    ceilingLog2 n = 1 + go (n-1) where
+      go 0 = -1
+      go k = 1 + go (shiftR k 1)
 
 -- | We only allow multiples of 4.
 roundBits :: Int -> Int

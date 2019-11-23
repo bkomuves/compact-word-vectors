@@ -15,6 +15,7 @@ void vec_identity(int n, const uint64_t *src, int* pm, uint64_t *tgt) {
 
 // -----------------------------------------------------------------------------
 
+// ones for the first n bit, zeros for the rest
 inline uint64_t nbit_mask (int n) { 
   uint64_t mask = 1;       // fucking c implicit conversions
   if (n<64) { 
@@ -27,6 +28,7 @@ inline uint64_t nbit_mask (int n) {
   return mask;
 }
 
+// zeros for the first n bit, ones for the rest
 inline uint64_t nbit_compl_mask(int n) { 
   uint64_t mask = 1;
   if (n<64) { 
@@ -36,6 +38,7 @@ inline uint64_t nbit_compl_mask(int n) {
   return 0;
 }
 
+// the minimum required bits to a store a given number, rounded up to multiples of 4
 inline int required_bits(uint64_t x)
 {
   int bits = 0;
@@ -45,10 +48,17 @@ inline int required_bits(uint64_t x)
   return bits;
 }
 
+inline int bits2reso(int bits)
+{
+  return ( (bits >> 2) - 1 );
+}
+
 inline int required_reso(uint64_t x)
 {
   return ( (required_bits(x) >> 2) - 1 );
 }
+
+// -----------------------------------------------------------------------------
 
 #define MAX_SMALL_LENGTH 31
 #define MAX_SMALL_BITS   16
@@ -159,7 +169,37 @@ inline int required_reso(uint64_t x)
       }                      \
     }
     
-     
+//  write next element            
+#define WRITE_ELEMENT(elem)           \
+    int q_new = q_ofs + tgt_bits;     \
+    if (q_new <= 64) {                \
+      uint64_t tmp;                   \
+      tmp  = q[0] & nbit_mask(q_ofs); \
+      q[0] = tmp  | (elem << q_ofs);  \
+    }                                 \
+    else {                            \
+      uint64_t tmp;                   \
+      tmp  = q[0] & nbit_mask(q_ofs); \
+      q[0] = tmp  | (elem << q_ofs);  \
+      q[1] = elem >> (64-q_ofs);      \
+    }                                 \
+    if (q_new >= 64) {                \
+      q_ofs = q_new-64;               \
+      q++;                            \
+    }                                 \
+    else {                            \
+      q_ofs = q_new;                  \
+    }     
+  
+   
+#define STORE_OUTPUT_LENGTH(tgt_len)  \
+  if (q_ofs == 0) {                   \
+    *tgt_len = (q - tgt);             \
+  }                                   \
+  else {                              \
+    *tgt_len = (q - tgt + 1);         \
+  }   
+  
 // -----------------------------------------------------------------------------
 
 void copy_elements_into
@@ -199,8 +239,6 @@ void copy_elements_into
     else { 
       p_ofs = p_new; 
     }
-
-// printf("src elem #%i = %x\n",i,elem);
 
     // write next element
     int q_new = q_ofs + tgt_bits;
@@ -382,18 +420,9 @@ uint64_t vec_equal_strict(int n1, const uint64_t *src1, int n2, const uint64_t *
 {
   int len1,bits1,header_bits1;
   int len2,bits2,header_bits2;
-  { 
-    VEC_HEADER_CODE(src1)
-    len1  = len;
-    bits1 = bits; 
-    header_bits1 = header_bits;
-  }
-  { 
-    VEC_HEADER_CODE(src2)
-    len2  = len;
-    bits2 = bits; 
-    header_bits2 = header_bits;
-  }
+
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
 
   if (len1 != len2) {
     return 0;
@@ -415,18 +444,9 @@ uint64_t vec_equal_extzero(int n1, const uint64_t *src1, int n2, const uint64_t 
 {
   int len1,bits1,header_bits1;
   int len2,bits2,header_bits2;
-  { 
-    VEC_HEADER_CODE(src1)
-    len1  = len;
-    bits1 = bits; 
-    header_bits1 = header_bits;
-  }
-  { 
-    VEC_HEADER_CODE(src2)
-    len2  = len;
-    bits2 = bits; 
-    header_bits2 = header_bits;
-  }
+
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
 
   int bool = 1;
   int zip_len = (len1>=len2) ? len1 : len2;
@@ -443,18 +463,9 @@ uint64_t vec_less_or_equal(int n1, const uint64_t *src1, int n2, const uint64_t 
 {
   int len1,bits1,header_bits1;
   int len2,bits2,header_bits2;
-  { 
-    VEC_HEADER_CODE(src1)
-    len1  = len;
-    bits1 = bits; 
-    header_bits1 = header_bits;
-  }
-  { 
-    VEC_HEADER_CODE(src2)
-    len2  = len;
-    bits2 = bits; 
-    header_bits2 = header_bits;
-  }
+  
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
 
   int bool = 1;
   int zip_len = (len1>=len2) ? len1 : len2;
@@ -473,18 +484,9 @@ uint64_t vec_partial_sums_less_or_equal(int n1, const uint64_t *src1, int n2, co
 {
   int len1,bits1,header_bits1;
   int len2,bits2,header_bits2;
-  { 
-    VEC_HEADER_CODE(src1)
-    len1  = len;
-    bits1 = bits; 
-    header_bits1 = header_bits;
-  }
-  { 
-    VEC_HEADER_CODE(src2)
-    len2  = len;
-    bits2 = bits; 
-    header_bits2 = header_bits;
-  }
+
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
 
   int bool = 1;
   int zip_len = (len1>=len2) ? len1 : len2;
@@ -500,6 +502,51 @@ uint64_t vec_partial_sums_less_or_equal(int n1, const uint64_t *src1, int n2, co
     if (i >= len1-1) { break; }   // if we are over the first list, then sum(0) <= sum(anything) 
   }
   return bool;
+}
+
+// -----------------------------------------------------------------------------
+
+void vec_add(int n1, const uint64_t *src1, int n2, const uint64_t *src2, int *pm, uint64_t *tgt) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+  
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
+
+  int zip_len = (len1>=len2) ? len1 : len2;
+
+  // compute upper bound for the result
+  uint64_t bound = 0;
+  { VEC_ZIP_LOOP
+      uint64_t x = elem1 + elem2;
+      if (x > bound) { bound = x; }
+    }
+  }
+  
+  int tgt_bits = required_bits(bound);
+  int tgt_reso = bits2reso(tgt_bits);
+
+  uint64_t *q = tgt;
+  int q_ofs;
+  
+  // write header
+  if ( (tgt_bits <= MAX_SMALL_BITS) && (zip_len <= MAX_SMALL_LENGTH) ) {
+    q[0]  = SMALL_HEADER( zip_len , tgt_reso );  
+    q_ofs = 8;
+  }
+  else {
+    q[0]  = BIG_HEADER( zip_len , tgt_reso );  
+    q_ofs = 32;
+  }
+  
+  // write result
+  VEC_ZIP_LOOP
+    uint64_t y = elem1 + elem2;
+    WRITE_ELEMENT(y)
+  }
+
+  STORE_OUTPUT_LENGTH(pm)
 }
 
 // -----------------------------------------------------------------------------
