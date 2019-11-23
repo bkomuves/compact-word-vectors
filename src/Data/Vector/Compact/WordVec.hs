@@ -27,7 +27,7 @@
 -- potentially useful for some applications 
 --
 
-{-# LANGUAGE BangPatterns, ForeignFunctionInterface #-}
+{-# LANGUAGE CPP, BangPatterns, ForeignFunctionInterface #-}
 module Data.Vector.Compact.WordVec where
 
 --------------------------------------------------------------------------------
@@ -41,6 +41,22 @@ import Data.Word
 import Foreign.C
 
 import Data.Vector.Compact.Blob 
+
+--------------------------------------------------------------------------------
+
+-- ???? how to determine this properly... 
+-- why on earth isn't this stuff properly documented?!?!?!?!? 
+#ifdef x86_64_HOST_ARCH
+#define MACHINE_WORD_BITS 64 
+#elif i386_HOST_ARCH
+#define MACHINE_WORD_BITS 32
+#elif i686_HOST_ARCH
+#define MACHINE_WORD_BITS 32
+#elif aarch64_HOST_ARCH
+#define MACHINE_WORD_BITS 64 
+#else
+#define MACHINE_WORD_BITS 32
+#endif
 
 --------------------------------------------------------------------------------
 -- * The dynamic Word vector type
@@ -203,9 +219,9 @@ cons_v1 w vec = fromList' shape' (w : toList vec) where
 
 --------------------------------------------------------------------------------
 
-foreign import ccall "vec_identity" c_vec_identity :: CFun11_       -- for testing
-foreign import ccall "vec_tail"     c_vec_tail     :: CFun11_
-foreign import ccall "vec_cons"     c_vec_cons     :: Word64 -> CFun11_
+foreign import ccall unsafe "vec_identity" c_vec_identity :: CFun11_       -- for testing
+foreign import ccall unsafe "vec_tail"     c_vec_tail     :: CFun11_
+foreign import ccall unsafe "vec_cons"     c_vec_cons     :: Word64 -> CFun11_
 
 tail_v2 :: WordVec -> WordVec
 tail_v2 (WordVec blob) = WordVec $ wrapCFun11_ c_vec_tail id blob
@@ -328,8 +344,8 @@ sum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_sum blob
 maximum :: WordVec -> Word
 maximum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_max blob
 
-foreign import ccall "vec_sum" c_vec_sum :: CFun10 Word64
-foreign import ccall "vec_max" c_vec_max :: CFun10 Word64
+foreign import ccall unsafe "vec_sum" c_vec_sum :: CFun10 Word64
+foreign import ccall unsafe "vec_max" c_vec_max :: CFun10 Word64
 
 --------------------------------------------------------------------------------
 -- * Specialized zipping folds 
@@ -339,10 +355,10 @@ foreign import ccall "vec_max" c_vec_max :: CFun10 Word64
 -- These are are faster than the generic operations below, and should be preferred.
 --
 
-foreign import ccall "vec_equal_strict"  c_equal_strict  :: CFun20 CInt
-foreign import ccall "vec_equal_extzero" c_equal_extzero :: CFun20 CInt
-foreign import ccall "vec_less_or_equal" c_less_or_equal :: CFun20 CInt
-foreign import ccall "vec_partial_sums_less_or_equal" c_partial_sums_less_or_equal :: CFun20 CInt
+foreign import ccall unsafe "vec_equal_strict"  c_equal_strict  :: CFun20 CInt
+foreign import ccall unsafe "vec_equal_extzero" c_equal_extzero :: CFun20 CInt
+foreign import ccall unsafe "vec_less_or_equal" c_less_or_equal :: CFun20 CInt
+foreign import ccall unsafe "vec_partial_sums_less_or_equal" c_partial_sums_less_or_equal :: CFun20 CInt
 
 -- | Strict equality of vectors (same length, same content)
 eqStrict :: WordVec -> WordVec -> Bool
@@ -372,7 +388,7 @@ partialSumsLessOrEqual (WordVec blob1) (WordVec blob2) =
 -- These are are faster than the generic operations below, and should be preferred.
 --
 
-foreign import ccall "vec_add"  c_vec_add  :: CFun21_
+foreign import ccall unsafe "vec_add"  c_vec_add  :: CFun21_
 
 -- | Pointwise addition of vectors. The shorter one is extended by zeros.
 add :: WordVec -> WordVec -> WordVec
@@ -422,12 +438,29 @@ listZipWith f u v = L.zipWith f (toList u) (toList v)
 --------------------------------------------------------------------------------
 -- * Misc helpers
 
+foreign import ccall unsafe "export_required_bits_not_rounded" export_required_bits_not_rounded :: Word64 -> CInt
+foreign import ccall unsafe "export_required_bits"             export_required_bits             :: Word64 -> CInt
+
+{-
+-- apparently, the C implementation is _not_ faster...
 bitsNeededFor :: Word -> Int
-bitsNeededFor = roundBits . bitsNeededFor'
+bitsNeededFor = fromIntegral . export_required_bits . fromIntegral
 
 bitsNeededFor' :: Word -> Int
-bitsNeededFor' bound 
-  | bound+1 == 0  = 64
+bitsNeededFor' = fromIntegral . export_required_bits_not_rounded . fromIntegral
+-}
+
+bitsNeededFor, bitsNeededFor' :: Word -> Int
+bitsNeededFor  = bitsNeededForReference
+bitsNeededFor' = bitsNeededForReference'
+
+bitsNeededForReference :: Word -> Int
+bitsNeededForReference = roundBits . bitsNeededForReference'
+
+bitsNeededForReference' :: Word -> Int
+bitsNeededForReference' bound 
+  | bound   == 0  = 1                             -- this is handled incorrectly by the formula below
+  | bound+1 == 0  = MACHINE_WORD_BITS             -- and this handled incorrectly because of overflow
   | otherwise     = ceilingLog2 (bound + 1)       -- for example, if maximum is 16, log2 = 4 but we need 5 bits 
   where    
     -- | Smallest integer @k@ such that @2^k@ is larger or equal to @n@

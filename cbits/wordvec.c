@@ -39,6 +39,15 @@ inline uint64_t nbit_compl_mask(int n) {
 }
 
 // the minimum required bits to a store a given number, rounded up to multiples of 4
+inline int required_bits_not_rounded(uint64_t x)
+{
+  int bits = 0;
+  while(x > 0) { x = (x>>1); bits++; }
+  if (bits == 0) { bits = 1; }
+  return bits;
+}
+
+// the minimum required bits to a store a given number, rounded up to multiples of 4
 inline int required_bits(uint64_t x)
 {
   int bits = 0;
@@ -47,6 +56,9 @@ inline int required_bits(uint64_t x)
   bits = (bits+3) & (~3);
   return bits;
 }
+
+int export_required_bits_not_rounded(uint64_t x) { return required_bits_not_rounded(x); }
+int export_required_bits            (uint64_t x) { return required_bits            (x); }
 
 inline int bits2reso(int bits)
 {

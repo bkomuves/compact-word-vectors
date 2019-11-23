@@ -23,10 +23,15 @@ import System.IO.Unsafe as Unsafe
 
 --------------------------------------------------------------------------------
 
+-- the fuck, we are almost writing 2020 here....
 #ifdef x86_64_HOST_ARCH
 arch_bits = 64 
 #elif i386_HOST_ARCH
 arch_bits = 32
+#elif i686_HOST_ARCH
+arch_bits = 32
+#elif aarch64_HOST_ARCH
+arch_bits = 64 
 #else
 arch_bits = 32
 #endif
@@ -84,7 +89,11 @@ tests_unit = testGroup "misc unit tests"
   , testCase "head of empty == 0"                $ assertBool "failed" $ (V.head V.empty == 0)
   , testCase "last of empty == 0"                $ assertBool "failed" $ (V.last V.empty == 0)
   , testCase "tail of empty == empty"            $ assertBool "failed" $ (V.tail V.empty == V.empty)  
+  , testCase "bitsNeededFor C vs. ref"           $ forall_ around_powers_of_two (\k -> bitsNeededFor  k == bitsNeededForReference  k)
+  , testCase "bitsNeededFor' C vs. ref"          $ forall_ around_powers_of_two (\k -> bitsNeededFor' k == bitsNeededForReference' k)
   ]
+
+-- [ k | k<-around_powers_of_two, bitsNeededFor' k /= bitsNeededForReference' k ]
 
 tests_small = testGroup "unit tests for small dynamic word vectors"
   [ testGroup "conversion, basic operations (small)"
@@ -223,7 +232,12 @@ check_eq_bitsizes = and
   | k<-[0..15] 
   , b<-[4..31]
   ]
-
+  
+around_powers_of_two :: [Word]
+around_powers_of_two = [0..7] ++ stuff ++ [2^nn-i | i<-[1..8] ] where
+  stuff = [ 2^i + fromIntegral ofs | i<-[2..nn-1] , ofs <- [-2..2::Int] ]
+  nn = {- 64 -} arch_bits 
+  
 --------------------------------------------------------------------------------
 -- * properties
 
@@ -295,19 +309,5 @@ prop_add_vs_naive    (Vec vec1 , Vec vec2) = V.add vec1 vec2 == add_naive vec1 v
 prop_add_commutative (Vec vec1 , Vec vec2) = V.add vec1 vec2 == V.add vec2 vec1
 
 bad_add = [ (bad1,bad2) | (Vec bad1, Vec bad2) <- bighead_pairs , not (prop_add_vs_naive (Vec bad1 , Vec bad2)) ]
-
-{-
-let v1 = V.fromList [536870911,0,1,2,3,4,5]
-let v2 = V.fromList [15,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]
-V.add v1 v2     -- instead of 18 we get 14
-
-let { v1 = V.fromList [536870911,0,1,2,3,4,5] ; v2 = V.fromList [15,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25] } in V.add v1 v2 
--}
-
-{-
-let v1 = V.fromList [9223372036854775808,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]
-let v2 = V.fromList [9223372036854775807,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42]
-let v3 = V.add v1 v2
--}
 
 --------------------------------------------------------------------------------

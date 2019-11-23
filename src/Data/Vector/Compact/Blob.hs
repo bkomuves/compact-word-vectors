@@ -437,17 +437,17 @@ wrapCFun21_ action f blob1 blob2  = Unsafe.unsafePerformIO $ do
 
 --------------------------------------------------------------------------------
 
-foreign import ccall "identity" c_identity :: CFun11_       -- for testing
+foreign import ccall unsafe "identity" c_identity :: CFun11_       -- for testing
 
-foreign import ccall "tail" c_tail  :: CFun11_
-foreign import ccall "cons" c_cons  :: Word64 -> CFun11_
-foreign import ccall "snoc" c_snoc  :: Word64 -> CFun11_
+foreign import ccall unsafe "tail" c_tail  :: CFun11_
+foreign import ccall unsafe "cons" c_cons  :: Word64 -> CFun11_
+foreign import ccall unsafe "snoc" c_snoc  :: Word64 -> CFun11_
 
-foreign import ccall "rotate_left"   c_rotate_left  :: CInt -> CFun11_
-foreign import ccall "rotate_right"  c_rotate_right :: CInt -> CFun11_
+foreign import ccall unsafe "rotate_left"   c_rotate_left  :: CInt -> CFun11_
+foreign import ccall unsafe "rotate_right"  c_rotate_right :: CInt -> CFun11_
 
-foreign import ccall "shift_left"    c_shift_left   :: CInt -> CFun11_
-foreign import ccall "shift_right"   c_shift_right  :: CInt -> CFun11_
+foreign import ccall unsafe "shift_left"    c_shift_left   :: CInt -> CFun11_
+foreign import ccall unsafe "shift_right"   c_shift_right  :: CInt -> CFun11_
 
 --------------------------------------------------------------------------------
 -- * Change size

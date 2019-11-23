@@ -11,9 +11,13 @@ import qualified Tests.Blob
 import qualified Tests.WordVec
 import qualified Tests.IntVec
 
+-- import System.Random
+
 --------------------------------------------------------------------------------
 
-main = defaultMain tests
+main = do
+  -- setStdGen (mkStdGen 12345)        -- only for reproducible timing!
+  defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Tests"  
