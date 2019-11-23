@@ -59,6 +59,9 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
   , testCase "cons vs. list"                 $ forall_ small_cons    prop_cons_vs_list
   , testCase "sum vs. list"                  $ forall_ small_Vecs    prop_sum_vs_list
   , testCase "max vs. list"                  $ forall_ small_Vecs    prop_max_vs_list
+  , testCase "strict equality vs. list"      $ forall_ small_pairs   prop_strict_eq_vs_list
+  , testCase "ext0 equality vs. list"        $ forall_ small_pairs   prop_ext0_eq_vs_list
+  , testCase "less or equal vs. list"        $ forall_ small_pairs   prop_less_or_equal_vs_list
   ]
 
 tests_bighead = testGroup "unit tests for small dynamic word vectors with big heads"
@@ -88,6 +91,7 @@ forall_ xs cond = assertBool "failed" (and (map cond xs))
 
 --------------------------------------------------------------------------------
 -- * inputs
+
 newtype List   = List   [Word]  deriving Show
 newtype NEList = NEList [Word]  deriving Show
 
@@ -108,6 +112,9 @@ small_NEVecs = [ NEVec (V.fromList xs) | NEList xs <- small_NELists ]
 
 small_cons :: [(Word,Vec)] 
 small_cons = [ (x, Vec (V.fromList xs)) | NEList (x:xs) <- small_NELists ]
+
+small_pairs :: [(Vec,Vec)]
+small_pairs= [ (u,v) | u <- small_Vecs , v <- small_Vecs ]
 
 --------------------------------------------------------------------------------
 
@@ -195,8 +202,29 @@ listMax xs = L.maximum xs
 prop_max_vs_list (Vec vec)  =  V.maximum vec == listMax (V.toList vec)
 prop_sum_vs_list (Vec vec)  =  V.sum     vec == L.sum   (V.toList vec)
 
+{-
 bad_max = [ vec | v@(Vec vec) <- bighead_Vecs , not (prop_max_vs_list v) ]
 bad_sum = [ vec | v@(Vec vec) <- bighead_Vecs , not (prop_sum_vs_list v) ]
+-}
 
 --------------------------------------------------------------------------------
+-- TODO: randomized tests for these
 
+longZipWith :: (Word -> Word -> a) -> [Word] -> [Word] -> [a]
+longZipWith f = go where
+  go (x:xs) (y:ys) = f x y : go xs ys
+  go (x:xs) []     = f x 0 : go xs []
+  go []     (y:ys) = f 0 y : go [] ys
+  go []     []     = []
+  
+eqListExt0 :: [Word] -> [Word] -> Bool
+eqListExt0 xs ys = and (longZipWith (==) xs ys)
+
+leListExt0 :: [Word] -> [Word] -> Bool
+leListExt0 xs ys = and (longZipWith (<=) xs ys)
+
+prop_strict_eq_vs_list     (Vec vec1 , Vec vec2) = eqStrict    vec1 vec2 == (V.toList vec1 == V.toList vec2)
+prop_ext0_eq_vs_list       (Vec vec1 , Vec vec2) = eqExtZero   vec1 vec2 == eqListExt0 (V.toList vec1) (V.toList vec2)
+prop_less_or_equal_vs_list (Vec vec1 , Vec vec2) = lessOrEqual vec1 vec2 == leListExt0 (V.toList vec1) (V.toList vec2)
+
+--------------------------------------------------------------------------------

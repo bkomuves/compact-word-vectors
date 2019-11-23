@@ -59,7 +59,7 @@ inline int required_reso(uint64_t x)
 #define SMALL_HEADER(len,reso) (     ((reso) << 1) | (((uint64_t)(len)) << 3) )
 #define   BIG_HEADER(len,reso) ( 1 | ((reso) << 1) | (((uint64_t)(len)) << 5) )
 
-#define VEC_HEADER_CODE             \
+#define VEC_HEADER_CODE(src)        \
   uint64_t head = src[0];           \
   int is_small  = (head & 1) ^ 1;   \
                                     \
@@ -109,7 +109,57 @@ inline int required_reso(uint64_t x)
     else {                \
       p_ofs = p_new;      \
     }
-  
+
+// zipping, extended with zeros, length given by the use (zip_len)
+#define VEC_ZIP_LOOP              \
+  const uint64_t *p1 = src1;      \
+  const uint64_t *p2 = src2;      \
+  int p_ofs1 = header_bits1;      \
+  int p_ofs2 = header_bits2;      \
+  uint64_t elem_mask1 = nbit_mask(bits1); \
+  uint64_t elem_mask2 = nbit_mask(bits2); \
+  for(int i=0;i<zip_len;i++) {        \
+    uint64_t elem1=0, elem2=0;        \
+    if (i<len1) {                     \
+      /* read next element #1 */      \
+      int p_new1 = p_ofs1 + bits1;    \
+      if (p_new1 <= 64) {             \
+        elem1 = (p1[0] >> p_ofs1);    \
+      }                               \
+      else {                          \
+        elem1 = (  p1[0]                         >>     p_ofs1 )       \
+              | ( (p1[1] & nbit_mask(p_new1-64)) << (64-p_ofs1));      \
+      }                                 \
+      elem1 &= elem_mask1;              \
+      if (p_new1 >= 64) {               \
+        p_ofs1 = p_new1-64;             \
+        p1++;                \
+      }                      \
+      else {                 \
+        p_ofs1 = p_new1;     \
+      }                      \
+    }                        \
+    if (i<len2) {                     \
+      /* read next element #2 */      \
+      int p_new2 = p_ofs2 + bits2;    \
+      if (p_new2 <= 64) {             \
+        elem2 = (p2[0] >> p_ofs2);    \
+      }                               \
+      else {                          \
+        elem2 = (  p2[0]                         >>     p_ofs2 )       \
+              | ( (p2[1] & nbit_mask(p_new2-64)) << (64-p_ofs2));      \
+      }                                 \
+      elem2 &= elem_mask2;              \
+      if (p_new2 >= 64) {               \
+        p_ofs2 = p_new2-64;             \
+        p2++;                \
+      }                      \
+      else {                 \
+        p_ofs2 = p_new2;     \
+      }                      \
+    }
+    
+     
 // -----------------------------------------------------------------------------
 
 void copy_elements_into
@@ -185,7 +235,7 @@ void copy_elements_into
 
 void vec_tail(int n, const uint64_t *src, int* pm, uint64_t *tgt) 
 {
-  VEC_HEADER_CODE
+  VEC_HEADER_CODE(src)
 
   if (len==0) { tgt[0] = EMPTY_HEADER; *pm = 1; return; }
 
@@ -203,7 +253,7 @@ void vec_tail(int n, const uint64_t *src, int* pm, uint64_t *tgt)
 
 void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt) 
 {
-  VEC_HEADER_CODE
+  VEC_HEADER_CODE(src)
 
   int x_bits = required_bits(x);
   int x_reso = required_reso(x);
@@ -302,10 +352,11 @@ void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt)
 }
 
 // -----------------------------------------------------------------------------
+// folds
 
 uint64_t vec_max(int n, const uint64_t *src) 
 {
-  VEC_HEADER_CODE
+  VEC_HEADER_CODE(src)
   uint64_t max = 0;
   VEC_READ_LOOP
     max = (elem > max) ? elem : max;
@@ -315,12 +366,140 @@ uint64_t vec_max(int n, const uint64_t *src)
 
 uint64_t vec_sum(int n, const uint64_t *src) 
 {
-  VEC_HEADER_CODE
+  VEC_HEADER_CODE(src)
   uint64_t sum = 0;
   VEC_READ_LOOP
     sum += elem;
   }
   return sum;
+}
+
+// -----------------------------------------------------------------------------
+// zipping folds
+
+// strictly equal (as vectors)
+uint64_t vec_equal_strict(int n1, const uint64_t *src1, int n2, const uint64_t *src2) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+  { 
+    VEC_HEADER_CODE(src1)
+    len1  = len;
+    bits1 = bits; 
+    header_bits1 = header_bits;
+  }
+  { 
+    VEC_HEADER_CODE(src2)
+    len2  = len;
+    bits2 = bits; 
+    header_bits2 = header_bits;
+  }
+
+  if (len1 != len2) {
+    return 0;
+  }
+      
+  int bool = 1;
+  int zip_len = len1;
+  VEC_ZIP_LOOP
+    if (elem1 != elem2) {
+      bool = 0;
+      break;
+    }
+  }
+  return bool;
+}
+
+// equal when extended by zeros (as monomials, partitions, etc)
+uint64_t vec_equal_extzero(int n1, const uint64_t *src1, int n2, const uint64_t *src2) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+  { 
+    VEC_HEADER_CODE(src1)
+    len1  = len;
+    bits1 = bits; 
+    header_bits1 = header_bits;
+  }
+  { 
+    VEC_HEADER_CODE(src2)
+    len2  = len;
+    bits2 = bits; 
+    header_bits2 = header_bits;
+  }
+
+  int bool = 1;
+  int zip_len = (len1>=len2) ? len1 : len2;
+  VEC_ZIP_LOOP
+    if (elem1 != elem2) {
+      bool = 0;
+      break;
+    }
+  }
+  return bool;
+}
+
+uint64_t vec_less_or_equal(int n1, const uint64_t *src1, int n2, const uint64_t *src2) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+  { 
+    VEC_HEADER_CODE(src1)
+    len1  = len;
+    bits1 = bits; 
+    header_bits1 = header_bits;
+  }
+  { 
+    VEC_HEADER_CODE(src2)
+    len2  = len;
+    bits2 = bits; 
+    header_bits2 = header_bits;
+  }
+
+  int bool = 1;
+  int zip_len = (len1>=len2) ? len1 : len2;
+  VEC_ZIP_LOOP
+    if (elem1 > elem2) {
+      bool = 0;
+      break;
+    }
+    if (i >= len1-1) { break; }   // if we are over the first list, then 0 <= anything 
+  }
+  return bool;
+}
+
+// dominance order of partitions
+uint64_t vec_partial_sums_less_or_equal(int n1, const uint64_t *src1, int n2, const uint64_t *src2) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+  { 
+    VEC_HEADER_CODE(src1)
+    len1  = len;
+    bits1 = bits; 
+    header_bits1 = header_bits;
+  }
+  { 
+    VEC_HEADER_CODE(src2)
+    len2  = len;
+    bits2 = bits; 
+    header_bits2 = header_bits;
+  }
+
+  int bool = 1;
+  int zip_len = (len1>=len2) ? len1 : len2;
+  uint64_t sum1 = 0;
+  uint64_t sum2 = 0;
+  VEC_ZIP_LOOP
+    sum1 += elem1;
+    sum2 += elem2;
+    if (sum1 > sum2) {
+      bool = 0;
+      break;
+    }
+    if (i >= len1-1) { break; }   // if we are over the first list, then sum(0) <= sum(anything) 
+  }
+  return bool;
 }
 
 // -----------------------------------------------------------------------------

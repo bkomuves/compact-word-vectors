@@ -195,7 +195,6 @@ uncons_v1 vec
   where
     (Shape len bits) = vecShape vec
 
-
 cons_v1 :: Word -> WordVec -> WordVec
 cons_v1 w vec = fromList' shape' (w : toList vec) where
   (Shape len bits) = vecShape vec
@@ -204,15 +203,15 @@ cons_v1 w vec = fromList' shape' (w : toList vec) where
 
 --------------------------------------------------------------------------------
 
-foreign import ccall "vec_identity" c_vec_identity :: CFun1       -- for testing
-foreign import ccall "vec_tail"     c_vec_tail     :: CFun1
-foreign import ccall "vec_cons"     c_vec_cons     :: Word64 -> CFun1
+foreign import ccall "vec_identity" c_vec_identity :: CFun11       -- for testing
+foreign import ccall "vec_tail"     c_vec_tail     :: CFun11
+foreign import ccall "vec_cons"     c_vec_cons     :: Word64 -> CFun11
 
 tail_v2 :: WordVec -> WordVec
-tail_v2 (WordVec blob) = WordVec $ wrapCFun1 c_vec_tail id blob
+tail_v2 (WordVec blob) = WordVec $ wrapCFun11 c_vec_tail id blob
 
 cons_v2 :: Word -> WordVec -> WordVec
-cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun1 (c_vec_cons (fromIntegral y)) f blob where
+cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun11 (c_vec_cons (fromIntegral y)) f blob where
   f !n = max (n+1) worstcase
   len  = vecLen vec
   worstcase = shiftR (32 + bitsNeededFor y * (len+1) + 63) 6
@@ -314,19 +313,50 @@ fromList' (Shape len bits0) words
               in   current' : worker (k-1) (shiftR this (64-bitOfs)) newOfs' rest
 
 --------------------------------------------------------------------------------
--- * Folds
+-- * Specialized folds (these are faster than the generic operations below)
 
-foreign import ccall "vec_sum" c_vec_sum :: CFun0 Word64
-foreign import ccall "vec_max" c_vec_max :: CFun0 Word64
+foreign import ccall "vec_sum" c_vec_sum :: CFun10 Word64
+foreign import ccall "vec_max" c_vec_max :: CFun10 Word64
 
 sum :: WordVec -> Word
-sum (WordVec blob) = fromIntegral $ wrapCFun0 c_vec_sum blob
+sum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_sum blob
 
 maximum :: WordVec -> Word
-maximum (WordVec blob) = fromIntegral $ wrapCFun0 c_vec_max blob
+maximum (WordVec blob) = fromIntegral $ wrapCFun10 c_vec_max blob
 
 --------------------------------------------------------------------------------
--- * Some more operations
+-- * Zipping folds (these are faster than the generic operations below)
+
+foreign import ccall "vec_equal_strict"  c_equal_strict  :: CFun20 CInt
+foreign import ccall "vec_equal_extzero" c_equal_extzero :: CFun20 CInt
+foreign import ccall "vec_less_or_equal" c_less_or_equal :: CFun20 CInt
+foreign import ccall "vec_partial_sums_less_or_equal" c_partial_sums_less_or_equal :: CFun20 CInt
+
+-- | Strict equality of vectors (same length, same content)
+eqStrict :: WordVec -> WordVec -> Bool
+eqStrict (WordVec blob1) (WordVec blob2) = (0 /= wrapCFun20 c_equal_strict blob1 blob2)
+
+-- | Equality of vectors extended with zeros to infinity
+eqExtZero :: WordVec -> WordVec -> Bool
+eqExtZero (WordVec blob1) (WordVec blob2) = (0 /= wrapCFun20 c_equal_extzero blob1 blob2)
+
+-- | Pointwise comparison of vectors extended with zeros to infinity
+lessOrEqual :: WordVec -> WordVec -> Bool
+lessOrEqual (WordVec blob1) (WordVec blob2) = (0 /= wrapCFun20 c_less_or_equal blob1 blob2)
+
+-- | Pointwise comparison of partial sums of vectors extended with zeros to infinity
+-- 
+-- For example @[x1,x2,x3] <= [y1,y2,y3]@ iff (@x1 <=y1 @ and @x1+x2 <= y1+y2@ and @x1+x2+x3 <= y1+y2+y3@).
+--
+partialSumsLessOrEqual :: WordVec -> WordVec -> Bool
+partialSumsLessOrEqual (WordVec blob1) (WordVec blob2) =
+  (0 /= wrapCFun20 c_partial_sums_less_or_equal blob1 blob2)
+
+--------------------------------------------------------------------------------
+-- * Some generic operations
+
+fold :: (a -> Word -> a) -> a -> WordVec -> a
+fold f x v = L.foldl' f x (toList v)  
 
 naiveMap :: (Word -> Word) -> WordVec -> WordVec
 naiveMap f u = fromList (map f $ toList u)

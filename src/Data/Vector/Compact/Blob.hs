@@ -331,17 +331,32 @@ peekBlob n ptr =
            ba@(ByteArray ba#) <- unsafeFreezeByteArray mut
            return (BlobN ba#)
 
-type CFun0 a = CInt -> Ptr Word64 -> IO a
-type CFun1   = CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO ()
+type CFun10 a = CInt -> Ptr Word64 -> IO a
+type CFun20 a = CInt -> Ptr Word64 -> CInt     -> Ptr Word64 -> IO a
+type CFun11   = CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO ()
+type CFun21   = CInt -> Ptr Word64 -> 
+                CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO ()
 
 -- | Allocate a temporary buffer, copy the content of the Blob there,
 -- and call the C function
-wrapCFun0_IO :: CFun0 a -> Blob -> IO a
-wrapCFun0_IO action blob = do
+wrapCFun10_IO :: CFun10 a -> Blob -> IO a
+wrapCFun10_IO action blob = do
   let !n = blobSizeInWords blob
   allocaArray n $ \ptr1 -> do
     pokeBlob ptr1 blob
     action (fromIntegral n) ptr1 
+
+-- | Allocate two temporary buffers, copy the content of the two Blobs there,
+-- and call the C function
+wrapCFun20_IO :: CFun20 a -> Blob -> Blob -> IO a
+wrapCFun20_IO action blob1 blob2 = do
+  let !n1 = blobSizeInWords blob1
+  let !n2 = blobSizeInWords blob2
+  allocaArray n1 $ \ptr1 -> do
+    pokeBlob ptr1 blob1
+    allocaArray n2 $ \ptr2 -> do
+      pokeBlob ptr2 blob2
+      action (fromIntegral n1) ptr1 (fromIntegral n2) ptr2 
      
 -- | Allocate a temporary buffer, copy the content of the Blob there (unfortunately
 -- we have to do this, because the GHC runtime does not allow direct manipulation of the heap,
@@ -350,8 +365,8 @@ wrapCFun0_IO action blob = do
 -- buffer, finally create a new Blob from the content of the second buffer 
 -- (another copying happens here).
 --
-wrapCFun1_IO :: CFun1 -> Int -> Blob -> IO Blob
-wrapCFun1_IO action m blob = do
+wrapCFun11_IO :: CFun11 -> Int -> Blob -> IO Blob
+wrapCFun11_IO action m blob = do
   let !n = blobSizeInWords blob
   allocaArray n $ \ptr1 -> do
     pokeBlob ptr1 blob
@@ -361,29 +376,33 @@ wrapCFun1_IO action m blob = do
         k <- peek q
         peekBlob (fromIntegral k) ptr2
 
-{-# NOINLINE wrapCFun0 #-}
-wrapCFun0 :: CFun0 a -> Blob -> a
-wrapCFun0 action blob = Unsafe.unsafePerformIO $ wrapCFun0_IO action blob
+{-# NOINLINE wrapCFun10 #-}
+wrapCFun10 :: CFun10 a -> Blob -> a
+wrapCFun10 action blob = Unsafe.unsafePerformIO $ wrapCFun10_IO action blob
 
-{-# NOINLINE wrapCFun1 #-}
-wrapCFun1 :: CFun1 -> (Int -> Int) -> Blob -> Blob
-wrapCFun1 action f blob = Unsafe.unsafePerformIO $ do
+{-# NOINLINE wrapCFun20 #-}
+wrapCFun20 :: CFun20 a -> Blob -> Blob -> a
+wrapCFun20 action blob1 blob2 = Unsafe.unsafePerformIO $ wrapCFun20_IO action blob1 blob2
+
+{-# NOINLINE wrapCFun11 #-}
+wrapCFun11 :: CFun11 -> (Int -> Int) -> Blob -> Blob
+wrapCFun11 action f blob = Unsafe.unsafePerformIO $ do
   let !n = blobSizeInWords blob
-  wrapCFun1_IO action (f n) blob 	
+  wrapCFun11_IO action (f n) blob
 
 --------------------------------------------------------------------------------
 
-foreign import ccall "identity" c_identity :: CFun1       -- for testing
+foreign import ccall "identity" c_identity :: CFun11       -- for testing
 
-foreign import ccall "tail" c_tail  :: CFun1
-foreign import ccall "cons" c_cons  :: Word64 -> CFun1
-foreign import ccall "snoc" c_snoc  :: Word64 -> CFun1
+foreign import ccall "tail" c_tail  :: CFun11
+foreign import ccall "cons" c_cons  :: Word64 -> CFun11
+foreign import ccall "snoc" c_snoc  :: Word64 -> CFun11
 
-foreign import ccall "rotate_left"   c_rotate_left  :: CInt -> CFun1
-foreign import ccall "rotate_right"  c_rotate_right :: CInt -> CFun1
+foreign import ccall "rotate_left"   c_rotate_left  :: CInt -> CFun11
+foreign import ccall "rotate_right"  c_rotate_right :: CInt -> CFun11
 
-foreign import ccall "shift_left"    c_shift_left   :: CInt -> CFun1
-foreign import ccall "shift_right"   c_shift_right  :: CInt -> CFun1
+foreign import ccall "shift_left"    c_shift_left   :: CInt -> CFun11
+foreign import ccall "shift_right"   c_shift_right  :: CInt -> CFun11
 
 --------------------------------------------------------------------------------
 -- * Change size
@@ -476,10 +495,10 @@ instance Bits Blob where
   xor   = longZipWith  xor
   complement = mapBlob complement
 
-  shiftL  blob k = wrapCFun1 (c_shift_left   (fromIntegral k)) f  blob where f n = n + shiftR (k+63) 6
-  shiftR  blob k = wrapCFun1 (c_shift_right  (fromIntegral k)) id blob
-  rotateL blob k = wrapCFun1 (c_rotate_left  (fromIntegral k)) id blob
-  rotateR blob k = wrapCFun1 (c_rotate_right (fromIntegral k)) id blob
+  shiftL  blob k = wrapCFun11 (c_shift_left   (fromIntegral k)) f  blob where f n = n + shiftR (k+63) 6
+  shiftR  blob k = wrapCFun11 (c_shift_right  (fromIntegral k)) id blob
+  rotateL blob k = wrapCFun11 (c_rotate_left  (fromIntegral k)) id blob
+  rotateR blob k = wrapCFun11 (c_rotate_right (fromIntegral k)) id blob
 
 #if MIN_VERSION_base(4,12,0)
   bitSizeMaybe = Just . blobSizeInBits
@@ -515,7 +534,7 @@ blobConsWord !y !blob = case blob of
   Blob3 a b c       -> Blob4 y a b c
   Blob4 a b c d     -> Blob5 y a b c d
   Blob5 a b c d e   -> Blob6 y a b c d e
-  _                 -> wrapCFun1 (c_cons y) (+1) blob
+  _                 -> wrapCFun11 (c_cons y) (+1) blob
 
 -- | Add a word at the end
 blobSnocWord :: Blob -> Word64 -> Blob
@@ -525,7 +544,7 @@ blobSnocWord !blob !z = case blob of
   Blob3 a b c       -> Blob4 a b c z
   Blob4 a b c d     -> Blob5 a b c d z
   Blob5 a b c d e   -> Blob6 a b c d e z
-  _                 -> wrapCFun1 (c_snoc z) (+1) blob
+  _                 -> wrapCFun11 (c_snoc z) (+1) blob
 
 -- | Remove the first word
 blobTail :: Blob -> Blob 
@@ -536,7 +555,7 @@ blobTail !blob = case blob of
   Blob4 _ b c d     -> Blob3 b c d 
   Blob5 _ b c d e   -> Blob4 b c d e 
   Blob6 _ b c d e f -> Blob5 b c d e f 
-  _                 -> wrapCFun1 c_tail id blob
+  _                 -> wrapCFun11 c_tail id blob
 
 --------------------------------------------------------------------------------
 -- * ByteArray helpers
