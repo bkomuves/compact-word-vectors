@@ -331,8 +331,18 @@ peekBlob n ptr =
            ba@(ByteArray ba#) <- unsafeFreezeByteArray mut
            return (BlobN ba#)
 
-type CFun1 = CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO ()
+type CFun0 a = CInt -> Ptr Word64 -> IO a
+type CFun1   = CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO ()
 
+-- | Allocate a temporary buffer, copy the content of the Blob there,
+-- and call the C function
+wrapCFun0_IO :: CFun0 a -> Blob -> IO a
+wrapCFun0_IO action blob = do
+  let !n = blobSizeInWords blob
+  allocaArray n $ \ptr1 -> do
+    pokeBlob ptr1 blob
+    action (fromIntegral n) ptr1 
+     
 -- | Allocate a temporary buffer, copy the content of the Blob there (unfortunately
 -- we have to do this, because the GHC runtime does not allow direct manipulation of the heap,
 -- even though we /know/ the heap layout...); then allocate another temporary buffer of
@@ -340,8 +350,8 @@ type CFun1 = CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO ()
 -- buffer, finally create a new Blob from the content of the second buffer 
 -- (another copying happens here).
 --
-wrapCFun1IO :: CFun1 -> Int -> Blob -> IO Blob
-wrapCFun1IO action m blob = do
+wrapCFun1_IO :: CFun1 -> Int -> Blob -> IO Blob
+wrapCFun1_IO action m blob = do
   let !n = blobSizeInWords blob
   allocaArray n $ \ptr1 -> do
     pokeBlob ptr1 blob
@@ -351,11 +361,15 @@ wrapCFun1IO action m blob = do
         k <- peek q
         peekBlob (fromIntegral k) ptr2
 
+{-# NOINLINE wrapCFun0 #-}
+wrapCFun0 :: CFun0 a -> Blob -> a
+wrapCFun0 action blob = Unsafe.unsafePerformIO $ wrapCFun0_IO action blob
+
 {-# NOINLINE wrapCFun1 #-}
 wrapCFun1 :: CFun1 -> (Int -> Int) -> Blob -> Blob
 wrapCFun1 action f blob = Unsafe.unsafePerformIO $ do
   let !n = blobSizeInWords blob
-  wrapCFun1IO action (f n) blob 	
+  wrapCFun1_IO action (f n) blob 	
 
 --------------------------------------------------------------------------------
 

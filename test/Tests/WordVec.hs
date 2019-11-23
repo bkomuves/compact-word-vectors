@@ -57,6 +57,8 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
   , testCase "uncons vs. naive"              $ forall_ small_Vecs    prop_uncons_vs_naive
   , testCase "uncons vs. list"               $ forall_ small_Vecs    prop_uncons_vs_list
   , testCase "cons vs. list"                 $ forall_ small_cons    prop_cons_vs_list
+  , testCase "sum vs. list"                  $ forall_ small_Vecs    prop_sum_vs_list
+  , testCase "max vs. list"                  $ forall_ small_Vecs    prop_max_vs_list
   ]
 
 tests_bighead = testGroup "unit tests for small dynamic word vectors with big heads"
@@ -77,6 +79,8 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
   , testCase "uncons vs. naive"              $ forall_ bighead_Vecs    prop_uncons_vs_naive
   , testCase "uncons vs. list"               $ forall_ bighead_Vecs    prop_uncons_vs_list
   , testCase "cons vs. list"                 $ forall_ bighead_cons    prop_cons_vs_list
+  , testCase "sum vs. list"                  $ forall_ bighead_Vecs    prop_sum_vs_list
+  , testCase "max vs. list"                  $ forall_ bighead_Vecs    prop_max_vs_list
   ]
 
 forall_ :: [a] -> (a -> Bool) -> Assertion
@@ -129,6 +133,19 @@ check_eq_bitsizes = and
   ]
 
 --------------------------------------------------------------------------------
+
+tail_naive :: WordVec -> WordVec
+tail_naive vec = if V.null vec
+  then empty
+  else fromList $ L.tail $ V.toList vec
+
+-- | For testing purposes only
+uncons_naive :: WordVec -> Maybe (Word,WordVec)
+uncons_naive vec = if V.null vec 
+  then Nothing
+  else Just (V.head vec, tail_naive vec)
+
+--------------------------------------------------------------------------------
 -- * properties
 
 prop_from_to_list (List list) = V.toList (V.fromList list) == list
@@ -148,7 +165,7 @@ prop_head_vs_index (NEVec  vec ) = V.head vec == unsafeIndex 0 vec
 
 prop_cons_uncons (NEVec vec)    =  liftM (uncurry V.cons) (V.uncons vec) == Just vec
 prop_uncons_cons (w,Vec vec)    =  V.uncons (V.cons w vec) == Just (w,vec)
-prop_uncons_vs_naive (Vec vec)  =  V.uncons vec == V.uncons_naive vec
+prop_uncons_vs_naive (Vec vec)  =  V.uncons vec == uncons_naive vec
 
 prop_uncons_vs_list (Vec vec) = unconsToList (V.uncons vec) == L.uncons (V.toList vec)
 prop_cons_vs_list (w,Vec vec) = V.toList (V.cons w vec) == w : (V.toList vec)
@@ -166,8 +183,20 @@ prop_uncons_v1_vs_v2    (Vec vec )  =  uncons_v1 vec == uncons_v2 vec
 {-
 bad_tail = [    vec  |    Vec vec  <- bighead_Vecs , tail_v1   vec /= tail_v2   vec ]
 bad_cons = [ (y,vec) | (y,Vec vec) <- bighead_cons , cons_v1 y vec /= cons_v2 y vec ]
+
+bad_cons_uncons = [ vec | NEVec vec <- bighead_NEVecs ,  liftM (uncurry V.cons) (V.uncons vec) /= Just vec ]
 -}
 
 --------------------------------------------------------------------------------
 
-bad_cons_uncons = [ vec | NEVec vec <- bighead_NEVecs ,  liftM (uncurry V.cons) (V.uncons vec) /= Just vec ]
+listMax [] = 0
+listMax xs = L.maximum xs
+
+prop_max_vs_list (Vec vec)  =  V.maximum vec == listMax (V.toList vec)
+prop_sum_vs_list (Vec vec)  =  V.sum     vec == L.sum   (V.toList vec)
+
+bad_max = [ vec | v@(Vec vec) <- bighead_Vecs , not (prop_max_vs_list v) ]
+bad_sum = [ vec | v@(Vec vec) <- bighead_Vecs , not (prop_sum_vs_list v) ]
+
+--------------------------------------------------------------------------------
+

@@ -17,14 +17,23 @@ void vec_identity(int n, const uint64_t *src, int* pm, uint64_t *tgt) {
 
 inline uint64_t nbit_mask (int n) { 
   uint64_t mask = 1;       // fucking c implicit conversions
-  mask = (mask << n) - 1;
+  if (n<64) { 
+    mask = (mask << n) - 1; 
+  }
+  else { 
+    mask = 0;
+    mask = ~mask;      // 0xfffff...f
+  }
   return mask;
 }
 
 inline uint64_t nbit_compl_mask(int n) { 
-  uint64_t mask = 1;                   
-  mask = (mask << n) - 1;
-  return ~mask;
+  uint64_t mask = 1;
+  if (n<64) { 
+    mask = (mask << n) - 1; 
+    return ~mask;
+  }
+  return 0;
 }
 
 inline int required_bits(uint64_t x)
@@ -75,11 +84,32 @@ inline int required_reso(uint64_t x)
   bits = ((reso + 1) << 2);                       \
   len  = (head >> (1 + reso_bits)) & len_mask;    
 
+// -------------------------------------
                   
-//printf("len  = %d\n",len ); \
-//printf("bits = %d\n",bits); \
-//printf("reso = %d\n",reso); \
-
+#define VEC_READ_LOOP           \
+  const uint64_t *p = src;      \
+  int p_ofs = header_bits;      \
+  uint64_t elem_mask = nbit_mask(bits); \
+  for(int i=0;i<len;i++) {      \
+    uint64_t elem;              \
+    /* read next element */         \
+    int p_new = p_ofs + bits;       \
+    if (p_new <= 64) {              \
+      elem = (p[0] >> p_ofs);       \
+    }                               \
+    else {                          \
+      elem = (  p[0]                        >>     p_ofs )       \
+           | ( (p[1] & nbit_mask(p_new-64)) << (64-p_ofs));      \
+    }                               \
+    elem &= elem_mask;              \
+    if (p_new >= 64) {              \
+      p_ofs = p_new-64;             \
+      p++;                \
+    }                     \
+    else {                \
+      p_ofs = p_new;      \
+    }
+  
 // -----------------------------------------------------------------------------
 
 void copy_elements_into
@@ -96,6 +126,8 @@ void copy_elements_into
   p += (p_ofs >> 6); p_ofs &= 63;
   q += (q_ofs >> 6); q_ofs &= 63;
 
+  uint64_t elem_mask = nbit_mask(src_bits); 
+
   for(int i=0;i<src_len;i++)
   {
     uint64_t elem, tmp;
@@ -109,7 +141,7 @@ void copy_elements_into
       elem = (  p[0]                        >>     p_ofs ) 
            | ( (p[1] & nbit_mask(p_new-64)) << (64-p_ofs));         
     }
-    elem &= nbit_mask(src_bits);
+    elem &= elem_mask;
     if (p_new >= 64) {
       p_ofs = p_new-64;
       p++;
@@ -268,3 +300,27 @@ void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt)
     }
   }
 }
+
+// -----------------------------------------------------------------------------
+
+uint64_t vec_max(int n, const uint64_t *src) 
+{
+  VEC_HEADER_CODE
+  uint64_t max = 0;
+  VEC_READ_LOOP
+    max = (elem > max) ? elem : max;
+  }
+  return max;
+}
+
+uint64_t vec_sum(int n, const uint64_t *src) 
+{
+  VEC_HEADER_CODE
+  uint64_t sum = 0;
+  VEC_READ_LOOP
+    sum += elem;
+  }
+  return sum;
+}
+
+// -----------------------------------------------------------------------------

@@ -204,19 +204,6 @@ cons_v1 w vec = fromList' shape' (w : toList vec) where
 
 --------------------------------------------------------------------------------
 
-tail_naive :: WordVec -> WordVec
-tail_naive vec = if null vec
-  then empty
-  else fromList $ L.tail $ toList vec
-
--- | For testing purposes only
-uncons_naive :: WordVec -> Maybe (Word,WordVec)
-uncons_naive vec = if null vec 
-  then Nothing
-  else Just (head vec, tail_naive vec)
-
---------------------------------------------------------------------------------
-
 foreign import ccall "vec_identity" c_vec_identity :: CFun1       -- for testing
 foreign import ccall "vec_tail"     c_vec_tail     :: CFun1
 foreign import ccall "vec_cons"     c_vec_cons     :: Word64 -> CFun1
@@ -294,7 +281,7 @@ fromList :: [Word] -> WordVec
 fromList [] = fromList' (Shape 0 4) []
 fromList xs = fromList' (Shape l b) xs where
   l = length xs
-  b = bitsNeededFor (maximum xs)
+  b = bitsNeededFor (L.maximum xs)
   
 fromList' :: Shape -> [Word] -> WordVec
 fromList' (Shape len bits0) words
@@ -325,6 +312,18 @@ fromList' (Shape len bits0) words
         EQ -> current' : worker (k-1) 0        0      rest 
         GT -> let !newOfs' = newOfs - 64
               in   current' : worker (k-1) (shiftR this (64-bitOfs)) newOfs' rest
+
+--------------------------------------------------------------------------------
+-- * Folds
+
+foreign import ccall "vec_sum" c_vec_sum :: CFun0 Word64
+foreign import ccall "vec_max" c_vec_max :: CFun0 Word64
+
+sum :: WordVec -> Word
+sum (WordVec blob) = fromIntegral $ wrapCFun0 c_vec_sum blob
+
+maximum :: WordVec -> Word
+maximum (WordVec blob) = fromIntegral $ wrapCFun0 c_vec_max blob
 
 --------------------------------------------------------------------------------
 -- * Some more operations
