@@ -1,5 +1,5 @@
 Name:                compact-word-vectors
-Version:             0.2
+Version:             0.2.0.1
 Synopsis:            Small vectors of small integers stored very compactly.
 Description:         A data structure to store small vectors of small integers
                      with minimal memory overhead. For example the (word) vector
@@ -21,10 +21,12 @@ Tested-With:         GHC == 8.6.5
 Cabal-Version:       1.24
 Build-Type:          Simple
 
+extra-source-files:  cbits/blob.h
+
 source-repository head
   type:                git
   location:            https://github.com/bkomuves/compact-word-vectors
-
+     
 --------------------------------------------------------------------------------
 
 Library
