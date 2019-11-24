@@ -23,13 +23,6 @@ import System.IO.Unsafe as Unsafe
 
 --------------------------------------------------------------------------------
 
-{-
-cons fatal error (caused by non-strict left shift of blobs):
-let (x, Vec xs) =(159407,Vec (fromList' (Shape {shapeLen = 4, shapeBits = 20}) [244557,137175,96511,42979]))
-cons_v2 x xs
--}
-
---------------------------------------------------------------------------------
 
 -- the fuck, we are almost writing 2020 here, why am i doing this?!....
 #ifdef x86_64_HOST_ARCH
@@ -94,12 +87,13 @@ all_tests = testGroup "tests for WordVec-s"
   ]
 
 tests_unit = testGroup "misc unit tests"
-  [ testCase "equality with different bit sizes" $ assertBool "failed" $ check_eq_bitsizes
-  , testCase "head of empty == 0"                $ assertBool "failed" $ (V.head V.empty == 0)
-  , testCase "last of empty == 0"                $ assertBool "failed" $ (V.last V.empty == 0)
-  , testCase "tail of empty == empty"            $ assertBool "failed" $ (V.tail V.empty == V.empty)  
-  , testCase "bitsNeededFor C vs. ref"           $ forall_ around_powers_of_two (\k -> bitsNeededFor  k == bitsNeededForReference  k)
-  , testCase "bitsNeededFor' C vs. ref"          $ forall_ around_powers_of_two (\k -> bitsNeededFor' k == bitsNeededForReference' k)
+  [ testCase "equality with different bit sizes"   $ assertBool "failed" $ check_eq_bitsizes
+  , testCase "head of empty == 0"                  $ assertBool "failed" $ (V.head V.empty == 0)
+  , testCase "last of empty == 0"                  $ assertBool "failed" $ (V.last V.empty == 0)
+  , testCase "tail of empty == empty"              $ assertBool "failed" $ (V.tail V.empty == V.empty)  
+  , testCase "bitsNeededFor C vs. ref"             $ forall_ around_powers_of_two (\k -> bitsNeededFor  k == bitsNeededForReference  k)
+  , testCase "bitsNeededFor' C vs. ref"            $ forall_ around_powers_of_two (\k -> bitsNeededFor' k == bitsNeededForReference' k)
+  , testCase "cons_v2 crash (left-shift) is fixed" $ assertBool "failed" $ cons_v2_crash
   ]
 
 -- [ k | k<-around_powers_of_two, bitsNeededFor' k /= bitsNeededForReference' k ]
@@ -298,7 +292,12 @@ bighead_pairs :: [(Vec,Vec)]
 bighead_pairs = [ (u,v) | u <- smaller_bighead_Vecs , v <- smaller_bighead_Vecs ]
 
 --------------------------------------------------------------------------------
+-- * misc tests
 
+-- cons fatal error (caused by non-strict left shift of blobs):
+cons_v2_crash = V.toList (cons_v2 x xs) == [159407,244557,137175,96511,42979] where
+  (x, Vec xs) = (159407, Vec (fromList' (Shape {shapeLen = 4, shapeBits = 20}) [244557,137175,96511,42979]))
+  
 check_eq_bitsizes = and
   [ V.fromList [k] == V.fromList' (Shape 1 b) [k] 
   | k<-[0..15] 
