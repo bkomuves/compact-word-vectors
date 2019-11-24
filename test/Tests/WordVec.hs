@@ -56,6 +56,24 @@ listLongZipWith f = go where
 
 --------------------------------------------------------------------------------
 
+cmpStrict_naive :: WordVec -> WordVec -> Ordering
+cmpStrict_naive x y = case compare (vecLen x) (vecLen y) of 
+  LT -> LT
+  GT -> GT
+  EQ -> compare (toList x) (toList y)
+
+cmpExtZero_naive :: WordVec -> WordVec -> Ordering
+cmpExtZero_naive x y = go (toList x) (toList y) where
+  go (x:xs) (y:ys) = case compare x y of
+    LT -> LT
+    GT -> GT 
+    EQ -> go xs ys
+  go (x:xs) []     = go (x:xs) [0] 
+  go []     (y:ys) = go [0]    (y:ys)  
+  go []     []     = EQ
+  
+--------------------------------------------------------------------------------
+
 bitsNeededForHs :: Word -> Int
 bitsNeededForHs = roundBits . bitsNeededForHs'
 
@@ -204,7 +222,9 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
       [ testCase "sum vs. list"                  $ forall_ small_Vecs    prop_sum_vs_list
       , testCase "max vs. list"                  $ forall_ small_Vecs    prop_max_vs_list
       , testCase "strict equality vs. list"      $ forall_ small_pairs   prop_strict_eq_vs_list
+      , testCase "strict comparison vs. list"    $ forall_ small_pairs   prop_strict_cmp_vs_list
       , testCase "ext0 equality vs. list"        $ forall_ small_pairs   prop_ext0_eq_vs_list
+      , testCase "ext0 comparison vs. list"      $ forall_ small_pairs   prop_ext0_cmp_vs_list
       , testCase "less or equal vs. list"        $ forall_ small_pairs   prop_less_or_equal_vs_list
       , testCase "add vs. naive"                 $ forall_ small_pairs   prop_add_vs_naive
       , testCase "sub vs. naive"                 $ forall_ small_pairs   prop_sub_vs_naive
@@ -243,7 +263,9 @@ tests_rnd = testGroup "tests for random dynamic word vectors"
       [ testCase "sum vs. list"                  $ forall_ rnd_Vecs    prop_sum_vs_list
       , testCase "max vs. list"                  $ forall_ rnd_Vecs    prop_max_vs_list
       , testCase "strict equality vs. list"      $ forall_ rnd_pairs   prop_strict_eq_vs_list
+      , testCase "strict comparison vs. list"    $ forall_ rnd_pairs   prop_strict_cmp_vs_list
       , testCase "ext0 equality vs. list"        $ forall_ rnd_pairs   prop_ext0_eq_vs_list
+      , testCase "ext0 comparison vs. list  "    $ forall_ rnd_pairs   prop_ext0_cmp_vs_list
       , testCase "less or equal vs. list"        $ forall_ rnd_pairs   prop_less_or_equal_vs_list
       , testCase "add vs. naive"                 $ forall_ rnd_pairs   prop_add_vs_naive
       , testCase "sub vs. naive"                 $ forall_ rnd_pairs   prop_sub_vs_naive
@@ -282,7 +304,9 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
       [ testCase "sum vs. list"                  $ forall_ bighead_Vecs    prop_sum_vs_list
       , testCase "max vs. list"                  $ forall_ bighead_Vecs    prop_max_vs_list
       , testCase "strict equality vs. list"      $ forall_ bighead_pairs   prop_strict_eq_vs_list
+      , testCase "strict comparison vs. list"    $ forall_ bighead_pairs   prop_strict_cmp_vs_list
       , testCase "ext0 equality vs. list"        $ forall_ bighead_pairs   prop_ext0_eq_vs_list
+      , testCase "ext0 comparison vs. list  "    $ forall_ bighead_pairs   prop_ext0_cmp_vs_list
       , testCase "less or equal vs. list"        $ forall_ bighead_pairs   prop_less_or_equal_vs_list
       , testCase "add vs. naive"                 $ forall_ bighead_pairs   prop_add_vs_naive
       , testCase "sub vs. naive"                 $ forall_ bighead_pairs   prop_sub_vs_naive
@@ -479,7 +503,9 @@ leListExt0 :: [Word] -> [Word] -> Bool
 leListExt0 xs ys = and (listLongZipWith (<=) xs ys)
 
 prop_strict_eq_vs_list     (Vec vec1 , Vec vec2) = eqStrict    vec1 vec2 == (V.toList vec1 == V.toList vec2)
+prop_strict_cmp_vs_list    (Vec vec1 , Vec vec2) = cmpStrict   vec1 vec2 == (vec1 `cmpStrict_naive` vec2)
 prop_ext0_eq_vs_list       (Vec vec1 , Vec vec2) = eqExtZero   vec1 vec2 == eqListExt0 (V.toList vec1) (V.toList vec2)
+prop_ext0_cmp_vs_list      (Vec vec1 , Vec vec2) = cmpExtZero  vec1 vec2 == (vec1 `cmpExtZero_naive` vec2)
 prop_less_or_equal_vs_list (Vec vec1 , Vec vec2) = lessOrEqual vec1 vec2 == leListExt0 (V.toList vec1) (V.toList vec2)
 
 --------------------------------------------------------------------------------

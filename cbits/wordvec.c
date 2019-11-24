@@ -8,6 +8,12 @@
 
 // -----------------------------------------------------------------------------
 
+#define LT  (-1)
+#define EQ    0 
+#define GT    1
+
+// -----------------------------------------------------------------------------
+
 void vec_identity(int n, const uint64_t *src, int* pm, uint64_t *tgt) {
   memcpy(tgt, src, n<<3);
   *pm = n;
@@ -602,6 +608,51 @@ uint64_t vec_equal_extzero(int n1, const uint64_t *src1, int n2, const uint64_t 
   return bool;
 }
 
+// strict comparison (as vectors):
+// first compares the length, then if equal, lexicographically the sentences
+// returns: 
+//   -1 = LT
+//    0 = EQ
+//   +1 = GT
+uint64_t vec_compare_strict(int n1, const uint64_t *src1, int n2, const uint64_t *src2) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
+
+  if (len1 < len2) { return LT; }
+  if (len1 > len2) { return GT; }
+
+  int result  = EQ;
+  int zip_len = len1;
+  VEC_ZIP_LOOP
+    if (elem1 < elem2) { result = LT; break; }
+    if (elem1 > elem2) { result = GT; break; }
+  }
+  return result;
+}
+
+// lexicographically compare sequences extended to infinity with zeros
+uint64_t vec_compare_extzero(int n1, const uint64_t *src1, int n2, const uint64_t *src2) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
+
+  int result  = EQ;
+  int zip_len = (len1>=len2) ? len1 : len2;
+  VEC_ZIP_LOOP
+    if (elem1 < elem2) { result = LT; break; }
+    if (elem1 > elem2) { result = GT; break; }
+  }
+  return result;
+}
+
+// pointwise less or equal, extended to infinity with zeros
 uint64_t vec_less_or_equal(int n1, const uint64_t *src1, int n2, const uint64_t *src2) 
 {
   int len1,bits1,header_bits1;

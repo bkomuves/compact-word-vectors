@@ -55,7 +55,8 @@ module Data.Vector.Compact.WordVec
     -- ** Specialized folds 
   , sum , maximum
     -- ** Specialized \"zipping folds\" 
-  , eqStrict , eqExtZero
+  , eqStrict  , eqExtZero
+  , cmpStrict , cmpExtZero
   , lessOrEqual , partialSumsLessOrEqual
     -- ** Specialized zips
   , add , subtract
@@ -116,6 +117,16 @@ import Data.Vector.Compact.Blob
 -- We use the very first bit to decide which of these two encoding we use.
 -- (if we would make a sum type instead, it would take 2 extra words...)
 --
+-- About the instances:
+-- 
+-- * the @Eq@ instance is strict: @x == y@ iff @toList x == toList y@.
+--   For an equality which disregards trailing zeros, see 'eqExtZero'
+-- 
+-- * the @Ord@ instance first compares the length, 
+--   then if the lengths are equal, compares the content lexicographically.
+--   For a comparison which disregards the length, and lexicographically
+--   compares the sequences extended with zeros, see 'cmpExtZero'
+--
 newtype WordVec 
   = WordVec Blob
 
@@ -170,18 +181,22 @@ showsPrecWordVec prec dynvec
   . showChar ' ' 
   . shows (toList dynvec)
     
--- | The Eq instances is strict: @x==y@ iff @toList x == toList y@.
--- For an equality which disregards trailing zeros, see @eqExtZero@
+-- | The Eq instance is strict: @x == y@ iff @toList x == toList y@.
+-- For an equality which disregards trailing zeros, see 'eqExtZero'.
 instance Eq WordVec where
-  (==) x y  =  eqStrict x y -- (vecLen x == vecLen y) && (toList x == toList y)
+  (==) x y  = eqStrict x y 
+  -- (==) x y  = (vecLen x == vecLen y) && (toList x == toList y)
 
--- | The Ord instances first compares the length, then if the lengths are equal, 
--- compares the content lexicographically.
+-- | The Ord instance first compares the length, then if the lengths are equal, 
+-- compares the content lexicographically. For a different ordering, see 'cmpExtZero'.
 instance Ord WordVec where
+  compare x y = cmpStrict x y
+{-
   compare x y = case compare (vecLen x) (vecLen y) of 
     LT -> LT
     GT -> GT
     EQ -> compare (toList x) (toList y)
+-}
 
 --------------------------------------------------------------------------------
 -- * Empty vector, singleton
@@ -427,9 +442,11 @@ foreign import ccall unsafe "vec_max" c_vec_max :: CFun10 Word64
 -- ** Specialized \"zipping folds\" 
 --
 
-foreign import ccall unsafe "vec_equal_strict"  c_equal_strict  :: CFun20 CInt
-foreign import ccall unsafe "vec_equal_extzero" c_equal_extzero :: CFun20 CInt
-foreign import ccall unsafe "vec_less_or_equal" c_less_or_equal :: CFun20 CInt
+foreign import ccall unsafe "vec_equal_strict"    c_equal_strict  :: CFun20 CInt
+foreign import ccall unsafe "vec_equal_extzero"   c_equal_extzero :: CFun20 CInt
+foreign import ccall unsafe "vec_compare_strict"  c_compare_strict  :: CFun20 CInt
+foreign import ccall unsafe "vec_compare_extzero" c_compare_extzero :: CFun20 CInt
+foreign import ccall unsafe "vec_less_or_equal"              c_less_or_equal :: CFun20 CInt
 foreign import ccall unsafe "vec_partial_sums_less_or_equal" c_partial_sums_less_or_equal :: CFun20 CInt
 
 -- | Strict equality of vectors (same length, same content)
@@ -439,6 +456,20 @@ eqStrict (WordVec blob1) (WordVec blob2) = (0 /= wrapCFun20 c_equal_strict blob1
 -- | Equality of vectors extended with zeros to infinity
 eqExtZero :: WordVec -> WordVec -> Bool
 eqExtZero (WordVec blob1) (WordVec blob2) = (0 /= wrapCFun20 c_equal_extzero blob1 blob2)
+
+cintToOrdering :: CInt -> Ordering
+cintToOrdering !k
+  | k < 0     = LT
+  | k > 0     = GT
+  | otherwise = EQ
+  
+-- | Strict comparison of vectors (first compare the lengths; if the lengths are the same then compare lexicographically)
+cmpStrict :: WordVec -> WordVec -> Ordering
+cmpStrict (WordVec blob1) (WordVec blob2) = cintToOrdering $ wrapCFun20 c_compare_strict blob1 blob2
+
+-- | Lexicographic ordering of vectors extended with zeros to infinity
+cmpExtZero :: WordVec -> WordVec -> Ordering
+cmpExtZero (WordVec blob1) (WordVec blob2) = cintToOrdering $ wrapCFun20 c_compare_extzero blob1 blob2
 
 -- | Pointwise comparison of vectors extended with zeros to infinity
 lessOrEqual :: WordVec -> WordVec -> Bool
@@ -487,6 +518,7 @@ subtract vec1@(WordVec blob1) vec2@(WordVec blob2) =
 
 foreign import ccall unsafe "vec_scale" c_vec_scale :: Word64 -> CFun11_
 
+-- | Pointwise multiplication by a constant.
 scale :: Word -> WordVec -> WordVec
 scale s vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_scale (fromIntegral s)) f blob where
   f _ = shiftR (32 + len*newbits + 63) 6   
@@ -501,6 +533,7 @@ scale s vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_scale (fromIntegral s)
 
 foreign import ccall unsafe "vec_partial_sums" c_vec_partial_sums :: CFun11 Word64
 
+-- | @toList (partialSums vec) == tail (scanl (+) 0 $ toList vec)@
 partialSums :: WordVec -> WordVec
 partialSums vec@(WordVec blob) = WordVec $ snd $ wrapCFun11 c_vec_partial_sums f blob where
   f _ = shiftR (32 + len*newbits + 63) 6   
