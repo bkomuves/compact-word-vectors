@@ -19,3 +19,14 @@ are better than lists, as they only have a constant overhead, but those
 constants are big: 13 words (104 bytes on 64 bit) for unboxed arrays, 
 and 6 words (48 bytes) for unboxed vectors. And you still have to select 
 the number of bits per element in advance.
+
+Installation
+------------
+
+It's on Hackage: https://hackage.haskell.org/package/compact-word-vectors
+So you can install it using cabal:
+```
+$ cabal update
+$ cabal install --lib compact-word-vectors
+```
+ 
