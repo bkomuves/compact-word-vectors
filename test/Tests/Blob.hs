@@ -157,7 +157,7 @@ prop_to_from_blob blob = blobFromWordList (blobToWordList blob) == blob
 prop_tolist_vs_peek blob = [ B.indexWord blob i | i<-[0..n-1] ] == blobToWordList blob where 
   n = blobSizeInWords blob
 
-prop_head_of_list list = blobHead (blobFromWordList list) == L.head list
+prop_head_of_list list = B.head (blobFromWordList list) == L.head list
 
 prop_eq_vs_naive (b1,b2) = eqBlob b1 b2 == eqBlob_naive b1 b2 
 
@@ -168,10 +168,10 @@ prop_from_to_bytearray list = baToByteList (blobToByteArray (blobFromByteArray b
 
 --------------------------------------------------------------------------------
 
-prop_tail_cons         blob  =  blobTail (blobConsWord 0x1234567890abcdef blob) == blob
-prop_shiftR64_is_tail  blob  =  (shiftR blob 64) == blobTail blob
+prop_tail_cons         blob  =  B.tail (B.consWord 0x1234567890abcdef blob) == blob
+prop_shiftR64_is_tail  blob  =  (shiftR blob 64) == B.tail blob
 prop_shiftR64_shiftL64 blob  =  shiftR (shiftL blob 64) 64 == blob
-prop_shiftL64_shiftR64 blob  =  shiftL (shiftR blob 64) 64 == blobConsWord 0 (blobTail blob)
+prop_shiftL64_shiftR64 blob  =  shiftL (shiftR blob 64) 64 == B.consWord 0 (B.tail blob)
 
 prop_shiftR_shiftL blob  = and [ shiftR (shiftL blob i) i `eqWithZeros` blob | i<-[0..201] ]
 

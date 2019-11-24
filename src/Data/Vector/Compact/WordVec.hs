@@ -84,7 +84,8 @@ import Data.Word
 
 import Foreign.C
 
-import Data.Vector.Compact.Blob 
+import Data.Vector.Compact.Blob hiding ( head , tail , last )
+import qualified Data.Vector.Compact.Blob as Blob
 
 --------------------------------------------------------------------------------
 
@@ -143,7 +144,7 @@ vecShape = snd . vecShape'
 -- | @vecShape' vec == (vecIsSmall vec , vecShape vec)@
 vecShape' :: WordVec -> (Bool,Shape)
 vecShape' (WordVec blob) = (isSmall,shape) where
-  !h      = blobHead blob
+  !h      = Blob.head blob
   !h2     = shiftR h 1
   !isSmall = (h .&. 1) == 0
   shape   = if isSmall
@@ -154,7 +155,7 @@ vecShape' (WordVec blob) = (isSmall,shape) where
 
 -- | @True@ if the internal representation is the \"small\" one
 vecIsSmall :: WordVec -> Bool
-vecIsSmall (WordVec blob) = (blobHead blob .&. 1) == 0  
+vecIsSmall (WordVec !blob) = (Blob.head blob .&. 1) == 0  
 
 -- | The length of the vector
 vecLen :: WordVec -> Int
@@ -205,9 +206,9 @@ empty :: WordVec
 empty = fromList []
 
 null :: WordVec -> Bool
-null (WordVec blob) = 
+null (WordVec !blob) = 
   -- null v = (vecLen v == 0)
-  let !h = blobHead blob 
+  let !h = Blob.head blob 
   in  (h .&. 0xf9 == 0) || (h .&. 0xffffffe1 == 1)
   -- 0xf9       = 000 ... 00|11111001
   -- 0xffffffe1 = 111 ... 11|11100001
@@ -218,10 +219,10 @@ null_naive v = (vecLen v == 0)
 -}
 
 singleton :: Word -> WordVec
-singleton x = fromListN 1 x [x] where
+singleton !x = fromListN 1 x [x] where
 
 isSingleton :: WordVec -> Maybe Word
-isSingleton v = case (vecLen v) of
+isSingleton !v = case (vecLen v) of
   1 -> Just (head v)
   _ -> Nothing
 

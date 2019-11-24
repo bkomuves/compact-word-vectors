@@ -39,11 +39,11 @@ module Data.Vector.Compact.Blob
     -- * Equality comparison
   , eqBlob
     -- * Head, tail, cons, etc  
-  , blobHead
-  , blobTail
-  , blobLast
-  , blobConsWord
-  , blobSnocWord
+  , head
+  , tail
+  , last
+  , consWord
+  , snocWord
     -- * Indexing
   , indexWord , indexByte
   , extractSmallWord , extractSmallWord64
@@ -74,11 +74,12 @@ module Data.Vector.Compact.Blob
 
 --------------------------------------------------------------------------------
 
+import Prelude hiding ( head , tail , last )
 import Data.Char
 import Data.Bits
 import Data.Int
 import Data.Word
-import Data.List
+import qualified Data.List as L
 
 import Control.Monad
 import Control.Monad.ST
@@ -202,7 +203,7 @@ blobFromByteArray ba@(ByteArray ba#)
                !m =   nbytes - ofs
                w8_to_w64 :: Word8 -> Word64
                w8_to_w64 = fromIntegral
-               !lastWord = foldl' (.|.) 0 [ shiftL (w8_to_w64 (indexByteArray ba (ofs + i))) (shiftL i 3) | i<-[0..m-1] ]
+               !lastWord = L.foldl' (.|.) 0 [ shiftL (w8_to_w64 (indexByteArray ba (ofs + i))) (shiftL i 3) | i<-[0..m-1] ]
            in  foldrByteArray (:) [lastWord] (ByteArray ba#)
 
 blobToByteArray :: Blob -> ByteArray
@@ -315,8 +316,8 @@ indexByte blob idx =
 --------------------------------------------------------------------------------
 -- * Head and last
 
-blobHead :: Blob -> Word64
-blobHead blob = case blob of
+head :: Blob -> Word64
+head blob = case blob of
   Blob1 a             -> a
   Blob2 a _           -> a
   Blob3 a _ _         -> a
@@ -325,8 +326,8 @@ blobHead blob = case blob of
   Blob6 a _ _ _ _ _   -> a
   BlobN arr#          -> indexByteArray (ByteArray arr#) 0
 
-blobLast :: Blob -> Word64
-blobLast blob = case blob of
+last :: Blob -> Word64
+last blob = case blob of
   Blob1 z             -> z
   Blob2 _ z           -> z
   Blob3 _ _ z         -> z
@@ -334,6 +335,40 @@ blobLast blob = case blob of
   Blob5 _ _ _ _ z     -> z
   Blob6 _ _ _ _ _ z   -> z
   BlobN arr#          -> indexByteArray (ByteArray arr#) (blobSizeInWords blob - 1)
+
+--------------------------------------------------------------------------------
+-- * Cons, Snoc, tail
+
+-- | Prepend a word at the start
+consWord :: Word64 -> Blob -> Blob
+consWord !y !blob = case blob of
+  Blob1 a           -> Blob2 y a
+  Blob2 a b         -> Blob3 y a b
+  Blob3 a b c       -> Blob4 y a b c
+  Blob4 a b c d     -> Blob5 y a b c d
+  Blob5 a b c d e   -> Blob6 y a b c d e
+  _                 -> wrapCFun11_ (c_cons y) (+1) blob
+
+-- | Append a word at the end
+snocWord :: Blob -> Word64 -> Blob
+snocWord !blob !z = case blob of
+  Blob1 a           -> Blob2 a z
+  Blob2 a b         -> Blob3 a b z
+  Blob3 a b c       -> Blob4 a b c z
+  Blob4 a b c d     -> Blob5 a b c d z
+  Blob5 a b c d e   -> Blob6 a b c d e z
+  _                 -> wrapCFun11_ (c_snoc z) (+1) blob
+
+-- | Remove the first word
+tail :: Blob -> Blob 
+tail !blob = case blob of
+  Blob1 _           -> Blob1 0
+  Blob2 _ b         -> Blob1 b 
+  Blob3 _ b c       -> Blob2 b c
+  Blob4 _ b c d     -> Blob3 b c d 
+  Blob5 _ b c d e   -> Blob4 b c d e 
+  Blob6 _ b c d e f -> Blob5 b c d e f 
+  _                 -> wrapCFun11_ c_tail id blob
 
 --------------------------------------------------------------------------------
 
@@ -529,7 +564,7 @@ foreign import ccall unsafe "shift_left_nonstrict" c_shift_left_nonstrict  :: CI
 foreign import ccall unsafe "shift_right"   c_shift_right  :: CInt -> CFun11_
 
 --------------------------------------------------------------------------------
--- * Resize
+-- * Resizing
 
 extendToSize :: Int -> Blob -> Blob
 extendToSize tgt blob 
@@ -636,7 +671,7 @@ instance Bits Blob where
 
   zeroBits = Blob1 0
   isSigned _    = False
-  popCount blob = foldl' (+) 0 (map popCount $ blobToWordList blob) 
+  popCount blob = L.foldl' (+) 0 (map popCount $ blobToWordList blob) 
 
   testBit !blob !k = if q >= n then False else testBit (indexWord blob q) r where
     (q,r) = divMod k 64
@@ -650,39 +685,6 @@ instance FiniteBits Blob where
   finiteBitSize = blobSizeInBits
 #endif
 
---------------------------------------------------------------------------------
--- * Cons, Snoc, tail
-
--- | Prepend a word at the start
-blobConsWord :: Word64 -> Blob -> Blob
-blobConsWord !y !blob = case blob of
-  Blob1 a           -> Blob2 y a
-  Blob2 a b         -> Blob3 y a b
-  Blob3 a b c       -> Blob4 y a b c
-  Blob4 a b c d     -> Blob5 y a b c d
-  Blob5 a b c d e   -> Blob6 y a b c d e
-  _                 -> wrapCFun11_ (c_cons y) (+1) blob
-
--- | Append a word at the end
-blobSnocWord :: Blob -> Word64 -> Blob
-blobSnocWord !blob !z = case blob of
-  Blob1 a           -> Blob2 a z
-  Blob2 a b         -> Blob3 a b z
-  Blob3 a b c       -> Blob4 a b c z
-  Blob4 a b c d     -> Blob5 a b c d z
-  Blob5 a b c d e   -> Blob6 a b c d e z
-  _                 -> wrapCFun11_ (c_snoc z) (+1) blob
-
--- | Remove the first word
-blobTail :: Blob -> Blob 
-blobTail !blob = case blob of
-  Blob1 _           -> Blob1 0
-  Blob2 _ b         -> Blob1 b 
-  Blob3 _ b c       -> Blob2 b c
-  Blob4 _ b c d     -> Blob3 b c d 
-  Blob5 _ b c d e   -> Blob4 b c d e 
-  Blob6 _ b c d e f -> Blob5 b c d e f 
-  _                 -> wrapCFun11_ c_tail id blob
 
 --------------------------------------------------------------------------------
 -- * ByteArray helpers
