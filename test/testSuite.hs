@@ -15,8 +15,13 @@ import qualified Tests.IntVec
 
 --------------------------------------------------------------------------------
 
+{-
+speedtest_main = do 
+  setStdGen (mkStdGen 12345)        -- for reproducible timing!
+  ...
+-}
+
 main = do
-  -- setStdGen (mkStdGen 12345)        -- only for reproducible timing!
   defaultMain tests
 
 tests :: TestTree

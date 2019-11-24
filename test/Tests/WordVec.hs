@@ -23,7 +23,15 @@ import System.IO.Unsafe as Unsafe
 
 --------------------------------------------------------------------------------
 
--- the fuck, we are almost writing 2020 here....
+{-
+cons fatal error (caused by non-strict left shift of blobs):
+let (x, Vec xs) =(159407,Vec (fromList' (Shape {shapeLen = 4, shapeBits = 20}) [244557,137175,96511,42979]))
+cons_v2 x xs
+-}
+
+--------------------------------------------------------------------------------
+
+-- the fuck, we are almost writing 2020 here, why am i doing this?!....
 #ifdef x86_64_HOST_ARCH
 arch_bits = 64 
 #elif i386_HOST_ARCH
@@ -78,9 +86,10 @@ add_naive vec1 vec2 = V.fromList $ listLongZipWith (+) (V.toList vec1) (V.toList
 
 --------------------------------------------------------------------------------
 
-all_tests = testGroup "unit tests for WordVec-s"
+all_tests = testGroup "tests for WordVec-s"
   [ tests_unit
   , tests_small
+  , tests_rnd
   , tests_bighead
   ]
 
@@ -123,6 +132,37 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
       , testCase "less or equal vs. list"        $ forall_ small_pairs   prop_less_or_equal_vs_list
       , testCase "add vs. naive"                 $ forall_ small_pairs   prop_add_vs_naive
       , testCase "add is commutative"            $ forall_ small_pairs   prop_add_commutative
+      ]
+  ]
+
+tests_rnd = testGroup "tests for random dynamic word vectors"
+  [ testGroup "conversion, basic operations (random)"
+      [ testCase "toList . fromList == id"       $ forall_ rnd_Lists   prop_from_to_list
+      , testCase "fromList . toList == id"       $ forall_ rnd_Vecs    prop_to_from_vec
+      , testCase "fromList vs. indexing"         $ forall_ rnd_Lists   prop_fromlist_vs_index
+      , testCase "toList vs. naive"              $ forall_ rnd_Vecs    prop_tolist_vs_naive
+      , testCase "toRevList == reverse . toList" $ forall_ rnd_Vecs    prop_toRevList
+      , testCase "vec head vs. list head"        $ forall_ rnd_NELists prop_head_of_list
+      , testCase "vec last vs. list last"        $ forall_ rnd_NELists prop_last_of_list
+      , testCase "vec tail vs. list tail"        $ forall_ rnd_NEVecs  prop_tail_of_list
+      , testCase "tail_v1 vs. tail_v2"           $ forall_ rnd_Vecs    prop_tail_v1_vs_v2
+      , testCase "cons_v1 vs. cons_v2"           $ forall_ rnd_cons    prop_cons_v1_vs_v2
+      , testCase "uncons_v1 vs. uncons_v2"       $ forall_ rnd_Vecs    prop_uncons_v1_vs_v2
+      , testCase "head vs. indexing"             $ forall_ rnd_NEVecs  prop_head_vs_index
+      , testCase "cons . uncons == id"           $ forall_ rnd_NEVecs  prop_cons_uncons
+      , testCase "uncons . cons == id"           $ forall_ rnd_cons    prop_uncons_cons
+      , testCase "uncons vs. naive"              $ forall_ rnd_Vecs    prop_uncons_vs_naive
+      , testCase "uncons vs. list"               $ forall_ rnd_Vecs    prop_uncons_vs_list
+      , testCase "cons vs. list"                 $ forall_ rnd_cons    prop_cons_vs_list
+      ]
+  , testGroup "\"advanced\" operations (random)"
+      [ testCase "sum vs. list"                  $ forall_ rnd_Vecs    prop_sum_vs_list
+      , testCase "max vs. list"                  $ forall_ rnd_Vecs    prop_max_vs_list
+      , testCase "strict equality vs. list"      $ forall_ rnd_pairs   prop_strict_eq_vs_list
+      , testCase "ext0 equality vs. list"        $ forall_ rnd_pairs   prop_ext0_eq_vs_list
+      , testCase "less or equal vs. list"        $ forall_ rnd_pairs   prop_less_or_equal_vs_list
+      , testCase "add vs. naive"                 $ forall_ rnd_pairs   prop_add_vs_naive
+      , testCase "add is commutative"            $ forall_ rnd_pairs   prop_add_commutative
       ]
   ]
 
@@ -202,6 +242,38 @@ smaller_Vecs = randomSublist 0.25 small_Vecs
 small_pairs :: [(Vec,Vec)]
 small_pairs = [ (u,v) | u <- smaller_Vecs , v <- smaller_Vecs ]
 
+--------------------------------------------------------------------------------
+
+randomVec :: Int -> Int -> IO Vec
+randomVec maxlen maxbits = do
+  len  <- randomRIO (0,maxlen )
+  bits <- randomRIO (0,maxbits)
+  let bnd = 2^bits - 1 
+  xs <- replicateM len (randomRIO (0,bnd))
+  -- print (bnd,xs)
+  return $ Vec $ V.fromListN len bnd xs
+  
+{-# NOINLINE rnd_Vecs #-}
+rnd_Vecs :: [Vec]
+rnd_Vecs = L.concat $ L.concat $ Unsafe.unsafePerformIO $ do
+  forM [1,5..100] $ \len -> do
+    forM [4,8..64] $ \maxbits -> do
+      let k = maxbits  -- for smaller bit depths, we need less test cases
+      replicateM k (randomVec len maxbits)
+      
+rnd_Lists   = [ List (V.toList vec) | Vec vec <- rnd_Vecs ]
+
+rnd_NELists = [ NEList l | List l <- rnd_Lists , not (L.null l) ]
+rnd_NEVecs  = [ NEVec  v | Vec  v <- rnd_Vecs  , not (V.null v) ]
+   
+rnd_cons = [ (x, Vec (V.fromList xs)) | NEList (x:xs) <- rnd_NELists ]
+
+smaller_rnd_Vecs :: [Vec]
+smaller_rnd_Vecs = randomSublist 0.025 rnd_Vecs
+   
+rnd_pairs :: [(Vec,Vec)]
+rnd_pairs = [ (u,v) | u <- smaller_rnd_Vecs , v <- smaller_rnd_Vecs ]
+   
 --------------------------------------------------------------------------------
 
 add_bighead :: List -> [List]
