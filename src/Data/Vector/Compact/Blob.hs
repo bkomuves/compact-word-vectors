@@ -68,6 +68,21 @@ data Blob
   | Blob6 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
   | BlobN !(ByteArray#) 
 
+{-
+IMPLEMENTATION REMARK:
+----------------------
+
+The runtime representation of Blob seems to be the same if we write
+
+  BlobN {-# UNPACK #-} !ByteArray
+
+instead (at least on GHC 6.8.5). This would be normally preferable, since 
+there is no need to deal with all the unlifted types. HOWEVER, I did a
+microbenchmark, and while the types themselves look interchangeable,
+the code GHC generates is NOT, and in fact much worse the nicer type
+(10x more heap allocations...). Which is unfortunate.
+-}
+
 --------------------------------------------------------------------------------
 
 blobTag :: Blob -> Int
