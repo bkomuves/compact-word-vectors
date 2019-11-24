@@ -363,7 +363,7 @@ void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt)
       if (len+1 <= MAX_SMALL_LENGTH) {
         // the length fits, too
         uint64_t mask = nbit_compl_mask(8+bits);
-        shift_left(bits, n, src, pm, tgt);
+        shift_left_strict(bits, n, src, pm, tgt);
         tgt[0] = (tgt[0] & mask) | SMALL_HEADER(len+1,reso) | (x << 8);
       }
       else {
@@ -371,13 +371,13 @@ void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt)
         if (bits <= 32) {
           // the new element fits into the first word
           uint64_t mask = nbit_compl_mask(32+bits);
-          shift_left(bits+24, n, src, pm, tgt);
+          shift_left_strict(bits+24, n, src, pm, tgt);
           tgt[0] = (tgt[0] & mask) | BIG_HEADER(len+1,reso) | (x << 32);
         }
         else {
           // the new element does not fit into the first word
           uint64_t mask = nbit_compl_mask(bits-32);
-          shift_left(bits+24, n, src, pm, tgt);
+          shift_left_strict(bits+24, n, src, pm, tgt);
           tgt[0] = BIG_HEADER(len+1,reso) | (x << 32);
           tgt[1] = (tgt[1] & mask) | (x >> 32);
         }
@@ -387,7 +387,7 @@ void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt)
       // the old vector is big
       if (bits <= 32) {
         // the new element fits into the first word
-        shift_left(bits, n, src, pm, tgt);
+        shift_left_strict(bits, n, src, pm, tgt);
         if (bits < 32) {
           uint64_t mask = nbit_compl_mask(32+bits);
           tgt[0] = (tgt[0] & mask) | BIG_HEADER(len+1,reso) | (x << 32);
@@ -399,7 +399,7 @@ void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt)
       else {
         // the new element does not fit into the first word
         uint64_t mask = nbit_compl_mask(bits-32);
-        shift_left(bits, n, src, pm, tgt);
+        shift_left_strict(bits, n, src, pm, tgt);
         tgt[0] = BIG_HEADER(len+1,reso) | (x << 32);
         tgt[1] = (tgt[1] & mask) | (x >> 32);
       }

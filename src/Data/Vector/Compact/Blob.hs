@@ -461,7 +461,8 @@ foreign import ccall unsafe "snoc" c_snoc  :: Word64 -> CFun11_
 foreign import ccall unsafe "rotate_left"   c_rotate_left  :: CInt -> CFun11_
 foreign import ccall unsafe "rotate_right"  c_rotate_right :: CInt -> CFun11_
 
-foreign import ccall unsafe "shift_left"    c_shift_left   :: CInt -> CFun11_
+foreign import ccall unsafe "shift_left_strict"    c_shift_left_strict     :: CInt -> CFun11_
+foreign import ccall unsafe "shift_left_nonstrict" c_shift_left_nonstrict  :: CInt -> CFun11_
 foreign import ccall unsafe "shift_right"   c_shift_right  :: CInt -> CFun11_
 
 --------------------------------------------------------------------------------
@@ -555,10 +556,10 @@ instance Bits Blob where
   xor   = longZipWith  xor
   complement = mapBlob complement
 
-  shiftL  blob k = wrapCFun11_ (c_shift_left   (fromIntegral k)) f  blob where f n = n + shiftR (k+63) 6
-  shiftR  blob k = wrapCFun11_ (c_shift_right  (fromIntegral k)) id blob
-  rotateL blob k = wrapCFun11_ (c_rotate_left  (fromIntegral k)) id blob
-  rotateR blob k = wrapCFun11_ (c_rotate_right (fromIntegral k)) id blob
+  shiftL  blob k = wrapCFun11_ (c_shift_left_nonstrict (fromIntegral k)) f  blob where f n = n + shiftR (k+63) 6
+  shiftR  blob k = wrapCFun11_ (c_shift_right          (fromIntegral k)) id blob
+  rotateL blob k = wrapCFun11_ (c_rotate_left          (fromIntegral k)) id blob
+  rotateR blob k = wrapCFun11_ (c_rotate_right         (fromIntegral k)) id blob
 
 #if MIN_VERSION_base(4,12,0)
   bitSizeMaybe = Just . blobSizeInBits

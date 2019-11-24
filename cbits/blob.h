@@ -17,9 +17,11 @@ void rotate_right(int k0, int n, const uint64_t *src, int* pm, uint64_t *tgt);
 
 void shift_left_words (int k, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
 void shift_right_words(int k, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
-void shift_left_bits (int k, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
+void shift_left_bits_strict    (int k, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
+void shift_left_bits_nonstrict (int k, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
 void shift_right_bits(int k, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
-void shift_left (int k0, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
+void shift_left_strict    (int k0, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
+void shift_left_nonstrict (int k0, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
 void shift_right(int k0, int n, const uint64_t *src, int* pm, uint64_t *tgt); 
 
 // -----------------------------------------------------------------------------

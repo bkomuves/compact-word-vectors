@@ -236,11 +236,14 @@ tail_v2 (WordVec blob) = WordVec $ wrapCFun11_ c_vec_tail id blob
 
 cons_v2 :: Word -> WordVec -> WordVec
 cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_cons (fromIntegral y)) f blob where
-  f !n = max (n+1) worstcase
+  f !n = max (n+2) worstcase
   len  = vecLen vec
   worstcase = shiftR (32 + bitsNeededFor y * (len+1) + 63) 6
   -- it can happen that we cons (2^64-1) to a long vector of 4 bit numbers...
-
+  -- now it either fits in the old bits, in which case we need at most 1 new word
+  -- (maybe two, if we also switch from small header to big header at the same time???)
+  -- or does not, which is computed by @worstcase@
+ 
 uncons_v2 :: WordVec -> Maybe (Word,WordVec)
 uncons_v2 vec@(WordVec blob) = if null vec 
   then Nothing
