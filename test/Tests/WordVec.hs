@@ -77,6 +77,11 @@ uncons_naive vec = if V.null vec
 add_naive :: WordVec -> WordVec -> WordVec
 add_naive vec1 vec2 = V.fromList $ listLongZipWith (+) (V.toList vec1) (V.toList vec2)
 
+sub_naive :: WordVec -> WordVec -> Maybe WordVec
+sub_naive vec1 vec2 = case and (listLongZipWith (>=) (V.toList vec1) (V.toList vec2)) of
+  True  -> Just $ V.fromList $  listLongZipWith (-)  (V.toList vec1) (V.toList vec2)
+  False -> Nothing
+
 --------------------------------------------------------------------------------
 
 all_tests = testGroup "tests for WordVec-s"
@@ -127,6 +132,7 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
       , testCase "ext0 equality vs. list"        $ forall_ small_pairs   prop_ext0_eq_vs_list
       , testCase "less or equal vs. list"        $ forall_ small_pairs   prop_less_or_equal_vs_list
       , testCase "add vs. naive"                 $ forall_ small_pairs   prop_add_vs_naive
+      , testCase "sub vs. naive"                 $ forall_ small_pairs   prop_sub_vs_naive
       , testCase "add is commutative"            $ forall_ small_pairs   prop_add_commutative
       ]
   ]
@@ -160,6 +166,7 @@ tests_rnd = testGroup "tests for random dynamic word vectors"
       , testCase "ext0 equality vs. list"        $ forall_ rnd_pairs   prop_ext0_eq_vs_list
       , testCase "less or equal vs. list"        $ forall_ rnd_pairs   prop_less_or_equal_vs_list
       , testCase "add vs. naive"                 $ forall_ rnd_pairs   prop_add_vs_naive
+      , testCase "sub vs. naive"                 $ forall_ rnd_pairs   prop_sub_vs_naive
       , testCase "add is commutative"            $ forall_ rnd_pairs   prop_add_commutative
       ]
   ]
@@ -193,6 +200,7 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
       , testCase "ext0 equality vs. list"        $ forall_ bighead_pairs   prop_ext0_eq_vs_list
       , testCase "less or equal vs. list"        $ forall_ bighead_pairs   prop_less_or_equal_vs_list
       , testCase "add vs. naive"                 $ forall_ bighead_pairs   prop_add_vs_naive
+      , testCase "sub vs. naive"                 $ forall_ bighead_pairs   prop_sub_vs_naive
       , testCase "add is commutative"            $ forall_ bighead_pairs   prop_add_commutative
       ]
   ]
@@ -386,8 +394,9 @@ prop_less_or_equal_vs_list (Vec vec1 , Vec vec2) = lessOrEqual vec1 vec2 == leLi
 
 --------------------------------------------------------------------------------
 
-prop_add_vs_naive    (Vec vec1 , Vec vec2) = V.add vec1 vec2 == add_naive vec1 vec2
-prop_add_commutative (Vec vec1 , Vec vec2) = V.add vec1 vec2 == V.add vec2 vec1
+prop_add_commutative (Vec vec1 , Vec vec2) = V.add      vec1 vec2 == V.add vec2 vec1
+prop_add_vs_naive    (Vec vec1 , Vec vec2) = V.add      vec1 vec2 == add_naive vec1 vec2
+prop_sub_vs_naive    (Vec vec1 , Vec vec2) = V.subtract vec1 vec2 == sub_naive vec1 vec2
 
 bad_add = [ (bad1,bad2) | (Vec bad1, Vec bad2) <- bighead_pairs , not (prop_add_vs_naive (Vec bad1 , Vec bad2)) ]
 

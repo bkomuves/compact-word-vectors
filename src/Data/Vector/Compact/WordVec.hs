@@ -414,7 +414,8 @@ partialSumsLessOrEqual (WordVec blob1) (WordVec blob2) =
 -- These are are faster than the generic operations below, and should be preferred.
 --
 
-foreign import ccall unsafe "vec_add"  c_vec_add  :: CFun21_
+foreign import ccall unsafe "vec_add"           c_vec_add          :: CFun21_
+foreign import ccall unsafe "vec_sub_overflow"  c_vec_sub_overflow :: CFun21 CInt
 
 -- | Pointwise addition of vectors. The shorter one is extended by zeros.
 add :: WordVec -> WordVec -> WordVec
@@ -427,6 +428,18 @@ add vec1@(WordVec blob1) vec2@(WordVec blob2) = WordVec $ wrapCFun21_ c_vec_add 
   Shape !l1 !b1 = vecShape vec1
   Shape !l2 !b2 = vecShape vec2
 
+-- | Pointwise subtraction of vectors. The shorter one is extended by zeros.
+-- If any element would become negative, we return Nothing
+subtract :: WordVec -> WordVec -> Maybe WordVec
+subtract vec1@(WordVec blob1) vec2@(WordVec blob2) = 
+  case (wrapCFun21 c_vec_sub_overflow f blob1 blob2) of
+    (0 , blob3) -> Just (WordVec blob3)
+    (_ , _    ) -> Nothing
+  where
+    f _ _ = 1 + shiftR ( (max b1 b2 + 4)*(max l1 l2) + 63 ) 6
+    Shape !l1 !b1 = vecShape vec1
+    Shape !l2 !b2 = vecShape vec2
+    
 --------------------------------------------------------------------------------
 -- * Some generic operations
 

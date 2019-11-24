@@ -693,3 +693,52 @@ void vec_add(int n1, const uint64_t *src1, int n2, const uint64_t *src2, int *pm
 }
 
 // -----------------------------------------------------------------------------
+
+// subtraction with overflow indicator
+int vec_sub_overflow(int n1, const uint64_t *src1, int n2, const uint64_t *src2, int *pm, uint64_t *tgt) 
+{
+  int len1,bits1,header_bits1;
+  int len2,bits2,header_bits2;
+  
+  { VEC_HEADER_CODE(src1) ; len1  = len ; bits1 = bits ; header_bits1 = header_bits; }
+  { VEC_HEADER_CODE(src2) ; len2  = len ; bits2 = bits ; header_bits2 = header_bits; }
+
+  int zip_len = (len1>=len2) ? len1 : len2;
+
+  // compute upper bound for the result
+  uint64_t bound = 0;
+  { VEC_ZIP_LOOP
+      uint64_t x = elem1 + elem2;
+      if (x > bound) { bound = x; }
+    }
+  }
+  
+  int tgt_bits = required_bits(bound);
+  int tgt_reso = bits2reso(tgt_bits);
+
+  uint64_t *q = tgt;
+  int q_ofs;
+  
+  // write header
+  if ( (tgt_bits <= MAX_SMALL_BITS) && (zip_len <= MAX_SMALL_LENGTH) ) {
+    q[0]  = SMALL_HEADER( zip_len , tgt_reso );  
+    q_ofs = 8;
+  }
+  else {
+    q[0]  = BIG_HEADER( zip_len , tgt_reso );  
+    q_ofs = 32;
+  }
+ 
+  int overflow = 0; 
+  // write result
+  VEC_ZIP_LOOP
+    if (elem2 > elem1) { overflow = 1; }
+    uint64_t y = elem1 - elem2;
+    WRITE_ELEMENT(y)
+  }
+
+  STORE_OUTPUT_LENGTH(pm)
+  return overflow;
+}
+
+// -----------------------------------------------------------------------------
