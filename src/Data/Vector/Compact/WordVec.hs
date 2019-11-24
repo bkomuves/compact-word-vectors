@@ -137,11 +137,18 @@ empty :: WordVec
 empty = fromList []
 
 null :: WordVec -> Bool
-null v = (vecLen v == 0)
+null (WordVec blob) = 
+  -- null v = (vecLen v == 0)
+  let !h = blobHead blob 
+  in  (h .&. 0xf9 == 0) || (h .&. 0xffffffe1 == 1)
+  -- 0xf9       = 000 ... 00|11111001
+  -- 0xffffffe1 = 111 ... 11|11100001
+   
+null_naive :: WordVec -> Bool
+null_naive v = (vecLen v == 0)
 
 singleton :: Word -> WordVec
-singleton x = fromList' (Shape 1 bits) [x] where
-  bits = bitsNeededFor x
+singleton x = fromListN 1 x [x] where
 
 isSingleton :: WordVec -> Maybe Word
 isSingleton v = case (vecLen v) of
@@ -219,9 +226,10 @@ cons_v1 w vec = fromList' shape' (w : toList vec) where
 
 --------------------------------------------------------------------------------
 
-foreign import ccall unsafe "vec_identity" c_vec_identity :: CFun11_       -- for testing
-foreign import ccall unsafe "vec_tail"     c_vec_tail     :: CFun11_
-foreign import ccall unsafe "vec_cons"     c_vec_cons     :: Word64 -> CFun11_
+foreign import ccall unsafe "vec_identity"  c_vec_identity  :: CFun11_       -- for testing
+foreign import ccall unsafe "vec_tail"      c_vec_tail      :: CFun11_
+foreign import ccall unsafe "vec_head_tail" c_vec_head_tail :: CFun11 Word64
+foreign import ccall unsafe "vec_cons"      c_vec_cons      :: Word64 -> CFun11_
 
 tail_v2 :: WordVec -> WordVec
 tail_v2 (WordVec blob) = WordVec $ wrapCFun11_ c_vec_tail id blob
@@ -234,10 +242,11 @@ cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_cons (fromIntegral y
   -- it can happen that we cons (2^64-1) to a long vector of 4 bit numbers...
 
 uncons_v2 :: WordVec -> Maybe (Word,WordVec)
-uncons_v2 vec = if null vec 
+uncons_v2 vec@(WordVec blob) = if null vec 
   then Nothing
-  else Just (head vec, tail_v2 vec)
-
+  else let (hd,tl) = wrapCFun11 c_vec_head_tail id blob
+       in  Just (fromIntegral hd , WordVec tl)
+       
 --------------------------------------------------------------------------------
 -- * Conversion to\/from lists
 

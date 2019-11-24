@@ -299,6 +299,33 @@ void vec_tail(int n, const uint64_t *src, int* pm, uint64_t *tgt)
   }
 }
 
+uint64_t vec_head_tail(int n, const uint64_t *src, int* pm, uint64_t *tgt) 
+{
+  VEC_HEADER_CODE(src)
+
+  if (len==0) { tgt[0] = EMPTY_HEADER; *pm = 1; return 0; }
+
+  if (is_small) { 
+    uint64_t head;
+    head = (src[0] >> 8) & nbit_mask(bits);
+    shift_right(bits, n, src, pm, tgt);
+    tgt[0] = (tgt[0] & (~header_mask)) | SMALL_HEADER(len-1,reso);
+    return head;
+  }
+  else {
+    uint64_t head;
+    if (bits <= 32) {
+      head = (src[0] >> 32) & nbit_mask(bits);
+    } 
+    else {
+      head = ((src[0] >> 32) | (src[1] << 32)) & nbit_mask(bits);
+    }
+    shift_right(bits, n, src, pm, tgt);
+    tgt[0] = (tgt[0] & (~header_mask)) | BIG_HEADER(len-1,reso);
+    return head;
+  }
+}
+
 // -----------------------------------------------------------------------------
 
 void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt) 
