@@ -22,7 +22,55 @@
 --
 
 {-# LANGUAGE CPP, BangPatterns, MagicHash, ForeignFunctionInterface #-}
-module Data.Vector.Compact.Blob where
+module Data.Vector.Compact.Blob 
+  (
+    -- * The Blob type
+    Blob(..)
+  , blobTag
+  , blobSizeInWords
+  , blobSizeInBytes
+  , blobSizeInBits
+    -- * Conversion to\/from lists
+  , blobFromWordList , blobFromWordListN
+  , blobToWordList
+    -- * Conversion to\/from 'ByteArray'-s
+  , blobFromByteArray
+  , blobToByteArray
+    -- * Equality comparison
+  , eqBlob
+    -- * Head, tail, cons, etc  
+  , blobHead
+  , blobTail
+  , blobLast
+  , blobConsWord
+  , blobSnocWord
+    -- * Indexing
+  , indexWord , indexByte
+  , extractSmallWord , extractSmallWord64
+    -- * Resizing
+  , extendToSize
+  , cutToSize
+  , forceToSize
+    -- * Higher-order functions
+  , mapBlob
+  , shortZipWith
+  , longZipWith
+  , unsafeZipWith
+    -- * Hexadecimal printing
+  , Hex(..)
+  , hexWord64 , hexWord64_
+    -- * (Indirect) access to the raw data
+    --
+    -- $raw
+  , peekBlob
+  , pokeBlob
+    -- * Wrappers for C implementations
+    --
+    -- $wrapper
+  , CFun10 , CFun20 , CFun11 , CFun21 , CFun11_ , CFun21_
+  , wrapCFun10 , wrapCFun20 , wrapCFun11 , wrapCFun21 , wrapCFun11_ , wrapCFun21_
+  )
+  where
 
 --------------------------------------------------------------------------------
 
@@ -211,30 +259,30 @@ hexWord64_ word = go [] 16 word where
 --------------------------------------------------------------------------------
 -- * Peek
  
-peekWord :: Blob -> Int -> Word64
-peekWord blob idx = case blob of
+indexWord :: Blob -> Int -> Word64
+indexWord blob idx = case blob of
 
   Blob1 a  
     | idx == 0   -> a
-    | otherwise  -> error "Blob/peekWord: index out of bounds"
+    | otherwise  -> error "Blob/indexWord: index out of bounds"
 
   Blob2 a b
     | idx == 0   -> a
     | idx == 1   -> b
-    | otherwise  -> error "Blob/peekWord: index out of bounds"
+    | otherwise  -> error "Blob/indexWord: index out of bounds"
 
   Blob3 a b c
     | idx == 0   -> a
     | idx == 1   -> b
     | idx == 2   -> c
-    | otherwise  -> error "Blob/peekWord: index out of bounds"
+    | otherwise  -> error "Blob/indexWord: index out of bounds"
 
   Blob4 a b c d 
     | idx == 0   -> a
     | idx == 1   -> b
     | idx == 2   -> c
     | idx == 3   -> d
-    | otherwise  -> error "Blob/peekWord: index out of bounds"
+    | otherwise  -> error "Blob/indexWord: index out of bounds"
 
   Blob5 a b c d e 
     | idx == 0   -> a
@@ -242,7 +290,7 @@ peekWord blob idx = case blob of
     | idx == 2   -> c
     | idx == 3   -> d
     | idx == 4   -> e
-    | otherwise  -> error "Blob/peekWord: index out of bounds"
+    | otherwise  -> error "Blob/indexWord: index out of bounds"
 
   Blob6 a b c d e f
     | idx == 0   -> a
@@ -251,7 +299,7 @@ peekWord blob idx = case blob of
     | idx == 3   -> d
     | idx == 4   -> e
     | idx == 5   -> f
-    | otherwise  -> error "Blob/peekWord: index out of bounds"
+    | otherwise  -> error "Blob/indexWord: index out of bounds"
 
   BlobN arr# -> indexByteArray (ByteArray arr#) idx
  
@@ -259,9 +307,9 @@ peekWord blob idx = case blob of
 -- Though it seems that since GHC does not gives us direct access to the closure,
 -- it doesn\'t matter after all...
 --  
-peekByte :: Blob -> Int -> Word8
-peekByte blob idx =
-  let w = peekWord blob (shiftR idx 3)
+indexByte :: Blob -> Int -> Word8
+indexByte blob idx =
+  let w = indexWord blob (shiftR idx 3)
   in  fromIntegral $ shiftR w (8 * (idx .&. 7))
 
 --------------------------------------------------------------------------------
@@ -302,8 +350,8 @@ extractSmallWord n blob ofs = fromIntegral (extractSmallWord64 n blob ofs)
 
 extractSmallWord64 :: Int -> Blob -> Int -> Word64 
 extractSmallWord64 !n !blob !ofs
-  | q2 == q1     = mask .&.  shiftR (peekWord blob q1) r1
-  | q2 == q1 + 1 = mask .&. (shiftR (peekWord blob q1) r1 .|. shiftL (peekWord blob q2) (64-r1))
+  | q2 == q1     = mask .&.  shiftR (indexWord blob q1) r1
+  | q2 == q1 + 1 = mask .&. (shiftR (indexWord blob q1) r1 .|. shiftL (indexWord blob q2) (64-r1))
   | otherwise    = error "Blob/extractSmallWord: FATAL ERROR"
   where
     mask = shiftL 1 n - 1
@@ -312,13 +360,20 @@ extractSmallWord64 !n !blob !ofs
     q2   = shiftR end 6 
     r1   = ofs .&. 63
 
+{-
 -- | An alternate implementation using 'testBit', for testing purposes only
 extractSmallWord64_naive :: Int -> Blob -> Int -> Word64     
 extractSmallWord64_naive n blob ofs = sum [ shiftL 1 i | i<-[0..n-1] , testBit blob (ofs+i) ]
+-}
 
 --------------------------------------------------------------------------------
 -- * (Indirect) access to the raw data
-
+--
+-- $raw
+--
+-- Note: Because GHC does not support direct manipulation of heap data
+-- (the garbage collector can move it anytime), these involve copying.
+--
 pokeBlob :: Ptr Word64 -> Blob -> IO Int
 pokeBlob ptr blob = case blob of
   Blob1 a           -> poke      ptr  a             >> return 1
@@ -351,7 +406,15 @@ peekBlob n ptr =
 
 --------------------------------------------------------------------------------
 -- * Wrappers for C implementations
-
+--
+-- $wrapper
+--
+-- As above, these involve copying of the data (both inputs and outputs);
+-- so they first allocate temporary buffers, copy the data into them
+-- call the C function, and copy the result to a new 'Blob'.
+--
+-- Naming conventions: For example @CFun21@ means 2 Blob inputs and 1 Blob output.
+--
 type CFun10 a = CInt -> Ptr Word64 -> IO a
 type CFun20 a = CInt -> Ptr Word64 -> CInt     -> Ptr Word64 -> IO a
 type CFun11 a = CInt -> Ptr Word64 -> Ptr CInt -> Ptr Word64 -> IO a
@@ -466,7 +529,7 @@ foreign import ccall unsafe "shift_left_nonstrict" c_shift_left_nonstrict  :: CI
 foreign import ccall unsafe "shift_right"   c_shift_right  :: CInt -> CFun11_
 
 --------------------------------------------------------------------------------
--- * Change size
+-- * Resize
 
 extendToSize :: Int -> Blob -> Blob
 extendToSize tgt blob 
@@ -550,6 +613,9 @@ unsafeZipWith f !blob1 !blob2 = case (blob1,blob2) of
 
 --------------------------------------------------------------------------------
 
+-- | Implementation note: When necessary, the bitwise operations consider the blobs
+-- extended to infinity with zero withs. This is especially important with 'shiftL',
+-- which may /NOT/ extend the blob size if the new bits are all zero.
 instance Bits Blob where
   (.&.) = shortZipWith (.&.)
   (.|.) = longZipWith  (.|.) 
@@ -572,7 +638,7 @@ instance Bits Blob where
   isSigned _    = False
   popCount blob = foldl' (+) 0 (map popCount $ blobToWordList blob) 
 
-  testBit !blob !k = if q >= n then False else testBit (peekWord blob q) r where
+  testBit !blob !k = if q >= n then False else testBit (indexWord blob q) r where
     (q,r) = divMod k 64
     n = blobSizeInWords blob
 
@@ -587,7 +653,7 @@ instance FiniteBits Blob where
 --------------------------------------------------------------------------------
 -- * Cons, Snoc, tail
 
--- | Add a word at the start
+-- | Prepend a word at the start
 blobConsWord :: Word64 -> Blob -> Blob
 blobConsWord !y !blob = case blob of
   Blob1 a           -> Blob2 y a
@@ -597,7 +663,7 @@ blobConsWord !y !blob = case blob of
   Blob5 a b c d e   -> Blob6 y a b c d e
   _                 -> wrapCFun11_ (c_cons y) (+1) blob
 
--- | Add a word at the end
+-- | Append a word at the end
 blobSnocWord :: Blob -> Word64 -> Blob
 blobSnocWord !blob !z = case blob of
   Blob1 a           -> Blob2 a z

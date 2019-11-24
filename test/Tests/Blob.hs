@@ -12,10 +12,16 @@ import Data.List as L
 
 import Data.Primitive.ByteArray
 
-import Data.Vector.Compact.Blob
+import Data.Vector.Compact.Blob as B
 
 import Test.Tasty
 import Test.Tasty.HUnit
+
+--------------------------------------------------------------------------------
+
+-- | An alternate implementation using 'testBit', for testing purposes only
+extractSmallWord64_naive :: Int -> Blob -> Int -> Word64     
+extractSmallWord64_naive n blob ofs = sum [ shiftL 1 i | i<-[0..n-1] , testBit blob (ofs+i) ]
 
 --------------------------------------------------------------------------------
 
@@ -148,7 +154,7 @@ eqWithZeros a b = and $ local_longZipWith (==) (blobToWordList a) (blobToWordLis
 prop_from_to_list list = blobToWordList (blobFromWordList list) == list
 prop_to_from_blob blob = blobFromWordList (blobToWordList blob) == blob
 
-prop_tolist_vs_peek blob = [ peekWord blob i | i<-[0..n-1] ] == blobToWordList blob where 
+prop_tolist_vs_peek blob = [ B.indexWord blob i | i<-[0..n-1] ] == blobToWordList blob where 
   n = blobSizeInWords blob
 
 prop_head_of_list list = blobHead (blobFromWordList list) == L.head list
