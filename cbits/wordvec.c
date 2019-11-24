@@ -327,6 +327,7 @@ uint64_t vec_head_tail(int n, const uint64_t *src, int* pm, uint64_t *tgt)
 }
 
 // -----------------------------------------------------------------------------
+// CONS
 
 void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt) 
 {
@@ -424,6 +425,109 @@ void vec_cons(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt)
         ( len ,   bits , src , header_bits
         , pm  , x_bits , tgt , 32 + x_bits 
         );
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// SNOC
+
+#define SNOC_WRITE(tgt_ofs,y_bits)   \
+  int bit_ofs  = (tgt_ofs);          \
+  int word_ofs = (bit_ofs) >> 6;     \
+  bit_ofs &= 63;                     \
+  int new_ofs  = bit_ofs + y_bits;   \
+  if  (new_ofs <= 64) {                  \
+    uint64_t mask = nbit_mask(bit_ofs);  \
+    tgt[word_ofs] = (tgt[word_ofs] & mask) | (x << bit_ofs);   \
+  }                                      \
+  else {                                 \
+    uint64_t mask = nbit_mask(bit_ofs);  \
+    tgt[word_ofs  ] = (tgt[word_ofs] & mask) | (x << bit_ofs);  \
+    tgt[word_ofs+1] = (x >> (64 - bit_ofs));                    \
+  }                          \
+  if (new_ofs <= 64) {       \
+    *pm = word_ofs + 1;      \
+  }                          \
+  else {                     \
+    *pm = word_ofs + 2;      \
+  }
+  
+  
+void vec_snoc(uint64_t x, int n, const uint64_t *src, int* pm, uint64_t *tgt) 
+{
+  VEC_HEADER_CODE(src)
+
+  int x_bits = required_bits(x);
+  int x_reso = required_reso(x);
+
+  if (len==0) {
+    // snoc to an empty vector
+    if (x_reso <= 2) {
+      tgt[0] = SMALL_HEADER(1,x_reso) | (x << 8); 
+      *pm = 1; 
+      return; 
+    }
+    else {
+      tgt[0] = BIG_HEADER(1,x_reso) | (x << 32); 
+      uint64_t y = (x >> 32);
+      if (y==0) {
+        *pm = 1; 
+      } 
+      else {
+        tgt[1] = y;
+        *pm = 2; 
+      }
+      return;
+    }
+  } 
+
+  if (x_bits <= bits) {
+    // the new element fits without changing the resolution
+    if (is_small) { 
+      // the old vector is small
+      if (len+1 <= MAX_SMALL_LENGTH) {
+        // the length fits, too
+        memcpy(tgt, src, n<<3);
+        uint64_t mask = nbit_compl_mask(8);
+        tgt[0] = (tgt[0] & mask) | SMALL_HEADER(len+1,reso);
+        SNOC_WRITE( 8+bits*len , bits )        
+      }
+      else {
+        // the length does not fit
+        shift_left_strict(24, n, src, pm, tgt);
+        uint64_t mask = nbit_compl_mask(32);
+        tgt[0] = (tgt[0] & mask) | BIG_HEADER(len+1,reso);
+        SNOC_WRITE( 32+bits*len , bits )        
+      }
+    }
+    else {
+      // the old vector is big
+      memcpy(tgt, src, n<<3);
+      uint64_t mask = nbit_compl_mask(32);
+      tgt[0] = (tgt[0] & mask) | BIG_HEADER(len+1,reso);
+      SNOC_WRITE( 32+bits*len , bits )        
+    }
+  }
+  else {
+    // the new element needs more bits
+    if ( (x_bits <= MAX_SMALL_BITS) && (len+1 <= MAX_SMALL_LENGTH) ) {
+      // but we still fit into a small vector
+      tgt[0] = SMALL_HEADER(len+1,x_reso);
+      copy_elements_into
+        ( len ,   bits , src , header_bits
+        , pm  , x_bits , tgt , 8  
+        );
+      SNOC_WRITE(8 + x_bits*len, x_bits)        
+    }
+    else {
+      // we need a big vector
+      tgt[0] = BIG_HEADER(len+1,x_reso);
+      copy_elements_into
+        ( len ,   bits , src , header_bits
+        , pm  , x_bits , tgt , 32  
+        );
+      SNOC_WRITE(32 + x_bits*len, x_bits)        
     }
   }
 }

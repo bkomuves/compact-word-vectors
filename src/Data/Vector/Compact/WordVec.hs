@@ -200,6 +200,7 @@ last dynvec@(WordVec blob)
 
 tail   = tail_v2
 cons   = cons_v2
+snoc   = snoc_v2
 uncons = uncons_v2
 
 --------------------------------------------------------------------------------
@@ -224,12 +225,19 @@ cons_v1 w vec = fromList' shape' (w : toList vec) where
   bits'  = max bits (bitsNeededFor w)
   shape' = Shape (len+1) bits'
 
+snoc_v1 :: WordVec -> Word -> WordVec
+snoc_v1 vec w = fromList' shape' (toList vec ++ [w]) where
+  (Shape len bits) = vecShape vec
+  bits'  = max bits (bitsNeededFor w)
+  shape' = Shape (len+1) bits'
+
 --------------------------------------------------------------------------------
 
 foreign import ccall unsafe "vec_identity"  c_vec_identity  :: CFun11_       -- for testing
 foreign import ccall unsafe "vec_tail"      c_vec_tail      :: CFun11_
 foreign import ccall unsafe "vec_head_tail" c_vec_head_tail :: CFun11 Word64
 foreign import ccall unsafe "vec_cons"      c_vec_cons      :: Word64 -> CFun11_
+foreign import ccall unsafe "vec_snoc"      c_vec_snoc      :: Word64 -> CFun11_
 
 tail_v2 :: WordVec -> WordVec
 tail_v2 (WordVec blob) = WordVec $ wrapCFun11_ c_vec_tail id blob
@@ -243,6 +251,12 @@ cons_v2 y vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_cons (fromIntegral y
   -- now it either fits in the old bits, in which case we need at most 1 new word
   -- (maybe two, if we also switch from small header to big header at the same time???)
   -- or does not, which is computed by @worstcase@
+
+snoc_v2 :: WordVec -> Word -> WordVec
+snoc_v2 vec@(WordVec blob) y = WordVec $ wrapCFun11_ (c_vec_snoc (fromIntegral y)) f blob where
+  f !n = max (n+2) worstcase
+  len  = vecLen vec
+  worstcase = shiftR (32 + bitsNeededFor y * (len+1) + 63) 6
  
 uncons_v2 :: WordVec -> Maybe (Word,WordVec)
 uncons_v2 vec@(WordVec blob) = if null vec 

@@ -110,6 +110,7 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
       , testCase "vec tail vs. list tail"        $ forall_ small_NEVecs  prop_tail_of_list
       , testCase "tail_v1 vs. tail_v2"           $ forall_ small_Vecs    prop_tail_v1_vs_v2
       , testCase "cons_v1 vs. cons_v2"           $ forall_ small_cons    prop_cons_v1_vs_v2
+      , testCase "snoc_v1 vs. snoc_v2"           $ forall_ small_cons    prop_snoc_v1_vs_v2
       , testCase "uncons_v1 vs. uncons_v2"       $ forall_ small_Vecs    prop_uncons_v1_vs_v2
       , testCase "head vs. indexing"             $ forall_ small_NEVecs  prop_head_vs_index
       , testCase "cons . uncons == id"           $ forall_ small_NEVecs  prop_cons_uncons
@@ -117,6 +118,7 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
       , testCase "uncons vs. naive"              $ forall_ small_Vecs    prop_uncons_vs_naive
       , testCase "uncons vs. list"               $ forall_ small_Vecs    prop_uncons_vs_list
       , testCase "cons vs. list"                 $ forall_ small_cons    prop_cons_vs_list
+      , testCase "snoc vs. list"                 $ forall_ small_cons    prop_snoc_vs_list
       ]
   , testGroup "\"advanced\" operations (small)"
       [ testCase "sum vs. list"                  $ forall_ small_Vecs    prop_sum_vs_list
@@ -141,6 +143,7 @@ tests_rnd = testGroup "tests for random dynamic word vectors"
       , testCase "vec tail vs. list tail"        $ forall_ rnd_NEVecs  prop_tail_of_list
       , testCase "tail_v1 vs. tail_v2"           $ forall_ rnd_Vecs    prop_tail_v1_vs_v2
       , testCase "cons_v1 vs. cons_v2"           $ forall_ rnd_cons    prop_cons_v1_vs_v2
+      , testCase "snoc_v1 vs. snoc_v2"           $ forall_ rnd_cons    prop_snoc_v1_vs_v2
       , testCase "uncons_v1 vs. uncons_v2"       $ forall_ rnd_Vecs    prop_uncons_v1_vs_v2
       , testCase "head vs. indexing"             $ forall_ rnd_NEVecs  prop_head_vs_index
       , testCase "cons . uncons == id"           $ forall_ rnd_NEVecs  prop_cons_uncons
@@ -148,6 +151,7 @@ tests_rnd = testGroup "tests for random dynamic word vectors"
       , testCase "uncons vs. naive"              $ forall_ rnd_Vecs    prop_uncons_vs_naive
       , testCase "uncons vs. list"               $ forall_ rnd_Vecs    prop_uncons_vs_list
       , testCase "cons vs. list"                 $ forall_ rnd_cons    prop_cons_vs_list
+      , testCase "snoc vs. list"                 $ forall_ rnd_cons    prop_snoc_vs_list
       ]
   , testGroup "\"advanced\" operations (random)"
       [ testCase "sum vs. list"                  $ forall_ rnd_Vecs    prop_sum_vs_list
@@ -172,6 +176,7 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
       , testCase "vec tail vs. list tail"        $ forall_ bighead_NEVecs  prop_tail_of_list
       , testCase "tail_v1 vs. tail_v2"           $ forall_ bighead_Vecs    prop_tail_v1_vs_v2
       , testCase "cons_v1 vs. cons_v2"           $ forall_ bighead_cons    prop_cons_v1_vs_v2
+      , testCase "snoc_v1 vs. snoc_v2"           $ forall_ bighead_cons    prop_snoc_v1_vs_v2
       , testCase "uncons_v1 vs. uncons_v2"       $ forall_ bighead_Vecs    prop_uncons_v1_vs_v2
       , testCase "head vs. indexing"             $ forall_ bighead_NEVecs  prop_head_vs_index
       , testCase "cons . uncons == id"           $ forall_ bighead_NEVecs  prop_cons_uncons
@@ -179,6 +184,7 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
       , testCase "uncons vs. naive"              $ forall_ bighead_Vecs    prop_uncons_vs_naive
       , testCase "uncons vs. list"               $ forall_ bighead_Vecs    prop_uncons_vs_list
       , testCase "cons vs. list"                 $ forall_ bighead_cons    prop_cons_vs_list
+      , testCase "snoc vs. list"                 $ forall_ bighead_cons    prop_snoc_vs_list
       ]
   , testGroup "\"advanced\" operations (big head)"
       [ testCase "sum vs. list"                  $ forall_ bighead_Vecs    prop_sum_vs_list
@@ -333,6 +339,7 @@ prop_uncons_vs_naive (Vec vec)  =  V.uncons vec == uncons_naive vec
 
 prop_uncons_vs_list (Vec vec) = unconsToList (V.uncons vec) == L.uncons (V.toList vec)
 prop_cons_vs_list (w,Vec vec) = V.toList (V.cons w vec) == w : (V.toList vec)
+prop_snoc_vs_list (w,Vec vec) = V.toList (V.snoc vec w) == (V.toList vec) ++ [w]
 
 unconsToList mb = case mb of
   Nothing      -> Nothing
@@ -342,6 +349,7 @@ unconsToList mb = case mb of
 
 prop_tail_v1_vs_v2      (Vec vec)   =  tail_v1   vec == tail_v2   vec
 prop_cons_v1_vs_v2   (y,(Vec vec))  =  cons_v1 y vec == cons_v2 y vec
+prop_snoc_v1_vs_v2   (y,(Vec vec))  =  snoc_v1 vec y == snoc_v2 vec y 
 prop_uncons_v1_vs_v2    (Vec vec )  =  uncons_v1 vec == uncons_v2 vec
 
 {-
@@ -350,6 +358,8 @@ bad_cons = [ (y,vec) | (y,Vec vec) <- bighead_cons , cons_v1 y vec /= cons_v2 y 
 
 bad_cons_uncons = [ vec | NEVec vec <- bighead_NEVecs ,  liftM (uncurry V.cons) (V.uncons vec) /= Just vec ]
 -}
+
+bad_snoc = [ (y,vec) | (y,Vec vec) <- small_cons   , snoc_v1 vec y /= snoc_v2 vec y ]
 
 --------------------------------------------------------------------------------
 
