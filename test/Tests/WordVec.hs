@@ -1,7 +1,7 @@
 
 -- | Tests for dynamic word vectors
 
-{-# LANGUAGE CPP,BangPatterns #-}
+{-# LANGUAGE CPP, BangPatterns, ForeignFunctionInterface #-}
 module Tests.WordVec where
 
 --------------------------------------------------------------------------------
@@ -9,11 +9,14 @@ module Tests.WordVec where
 import Control.Monad 
 
 import Data.Word
+import Data.Bits
 import Data.Maybe
 import Data.List as L
 
 import Data.Vector.Compact.WordVec as V
 import Data.Vector.Compact.Blob    as B
+
+import Foreign.C.Types
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -52,6 +55,34 @@ listLongZipWith f = go where
   go []     []     = []
 
 --------------------------------------------------------------------------------
+
+bitsNeededForHs :: Word -> Int
+bitsNeededForHs = roundBits . bitsNeededForHs'
+
+bitsNeededForHs' :: Word -> Int
+bitsNeededForHs' bound 
+  | bound   == 0  = 1                                 -- this is handled incorrectly by the formula below
+  | bound+1 == 0  = arch_bits -- MACHINE_WORD_BITS    -- and this handled incorrectly because of overflow
+  | otherwise     = ceilingLog2 (bound + 1)           -- for example, if maximum is 16, log2 = 4 but we need 5 bits 
+  where    
+    -- | Smallest integer @k@ such that @2^k@ is larger or equal to @n@
+    ceilingLog2 :: Word -> Int
+    ceilingLog2 0 = 0
+    ceilingLog2 n = 1 + go (n-1) where
+      go 0 = -1
+      go k = 1 + go (shiftR k 1)
+
+-- apparently, the C implementation is _not_ faster...
+bitsNeededForC :: Word -> Int
+bitsNeededForC = fromIntegral . export_required_bits . fromIntegral
+
+bitsNeededForC' :: Word -> Int
+bitsNeededForC' = fromIntegral . export_required_bits_not_rounded . fromIntegral
+
+foreign import ccall unsafe "export_required_bits_not_rounded" export_required_bits_not_rounded :: Word64 -> CInt
+foreign import ccall unsafe "export_required_bits"             export_required_bits             :: Word64 -> CInt
+
+--------------------------------------------------------------------------------
 -- * Naive, reference implementations
                 
 -- | Another implementation of 'toList', for testing purposes only
@@ -62,6 +93,44 @@ toList_extract dynvec@(WordVec blob)  =
     False -> [ B.extractSmallWord bits blob (32 + bits*i) | i<-[0..len-1] ]
   where
     (isSmall, Shape len bits) = vecShape' dynvec
+
+--------------------------------------------------------------------------------
+
+tail_v1 :: WordVec -> WordVec
+tail_v1 dynvec 
+  | len == 0   = empty
+  | otherwise  = fromList' (Shape (len-1) bits) (L.tail $ toList dynvec)
+  where
+    (Shape len bits) = vecShape dynvec
+
+uncons_v1 :: WordVec -> Maybe (Word,WordVec)
+uncons_v1 vec  
+  | len == 0   = Nothing
+  | otherwise  = Just $ case toList vec of { (w:ws) -> (w , fromList' (Shape (len-1) bits) ws) }
+  where
+    (Shape len bits) = vecShape vec
+
+cons_v1 :: Word -> WordVec -> WordVec
+cons_v1 w vec = fromList' shape' (w : toList vec) where
+  (Shape len bits) = vecShape vec
+  bits'  = max bits (bitsNeededFor w)
+  shape' = Shape (len+1) bits'
+
+snoc_v1 :: WordVec -> Word -> WordVec
+snoc_v1 vec w = fromList' shape' (toList vec ++ [w]) where
+  (Shape len bits) = vecShape vec
+  bits'  = max bits (bitsNeededFor w)
+  shape' = Shape (len+1) bits'
+
+tail_v2   = V.tail
+cons_v2   = V.cons
+snoc_v2   = V.snoc
+uncons_v2 = V.uncons
+
+--------------------------------------------------------------------------------
+
+null_naive :: WordVec -> Bool
+null_naive v = (vecLen v == 0)
 
 tail_naive :: WordVec -> WordVec
 tail_naive vec = if V.null vec
@@ -102,8 +171,8 @@ tests_unit = testGroup "misc unit tests"
   , testCase "head of empty == 0"                  $ assertBool "failed" $ (V.head V.empty == 0)
   , testCase "last of empty == 0"                  $ assertBool "failed" $ (V.last V.empty == 0)
   , testCase "tail of empty == empty"              $ assertBool "failed" $ (V.tail V.empty == V.empty)  
-  , testCase "bitsNeededFor C vs. ref"             $ forall_ around_powers_of_two (\k -> bitsNeededFor  k == bitsNeededForReference  k)
-  , testCase "bitsNeededFor' C vs. ref"            $ forall_ around_powers_of_two (\k -> bitsNeededFor' k == bitsNeededForReference' k)
+  , testCase "bitsNeededFor C vs. ref"             $ forall_ around_powers_of_two (\k -> bitsNeededForHs  k == bitsNeededForC  k)
+  , testCase "bitsNeededFor' C vs. ref"            $ forall_ around_powers_of_two (\k -> bitsNeededForHs' k == bitsNeededForC' k)
   , testCase "cons_v2 crash (left-shift) is fixed" $ assertBool "failed" $ cons_v2_crash
   ]
 

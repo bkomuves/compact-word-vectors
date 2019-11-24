@@ -28,11 +28,54 @@
 --
 
 {-# LANGUAGE CPP, BangPatterns, ForeignFunctionInterface #-}
-module Data.Vector.Compact.WordVec where
+module Data.Vector.Compact.WordVec 
+  ( -- * The dynamic Word vector type
+    WordVec(..)
+  , Shape(..)
+  , vecShape , vecShape'
+  , vecLen , vecBits , vecIsSmall
+    -- * Show instance
+  , showWordVec , showsPrecWordVec
+    -- * Empty vector, singleton
+  , null , empty
+  , singleton , isSingleton
+    -- * Conversion to\/from lists
+  , fromList , fromListN , fromList'
+  , toList , toRevList
+    -- * Indexing
+  , unsafeIndex , safeIndex 
+    -- * Head, tail, etc
+  , head , tail , cons , uncons
+  , last ,        snoc                   -- init, unsnoc
+  , concat
+    -- * Specialized operations 
+    --
+    -- $spec
+    --
+    -- ** Specialized folds 
+  , sum , maximum
+    -- ** Specialized \"zipping folds\" 
+  , eqStrict , eqExtZero
+  , lessOrEqual , partialSumsLessOrEqual
+    -- ** Specialized zips
+  , add , subtract
+    -- ** Specialized maps
+  , scale 
+    -- ** Specialized scans
+  , partialSums
+    -- * Generic operations
+  , fold
+  , naiveMap , boundedMap
+  , naiveZipWith , boundedZipWith , listZipWith
+    -- * Number of bits needed
+  , bitsNeededFor , bitsNeededFor'
+  , roundBits
+  )
+  where
 
 --------------------------------------------------------------------------------
 
-import Prelude hiding ( head , tail , null ) 
+import Prelude hiding ( head , tail , init , last , null , concat , subtract , sum , maximum ) 
 import qualified Data.List as L
 
 import Data.Bits
@@ -73,8 +116,8 @@ import Data.Vector.Compact.Blob
 -- We use the very first bit to decide which of these two encoding we use.
 -- (if we would make a sum type instead, it would take 2 extra words...)
 --
-newtype WordVec = WordVec Blob
-  -- deriving Show
+newtype WordVec 
+  = WordVec Blob
 
 -- | The \"shape\" of a dynamic word vector
 data Shape = Shape
@@ -86,6 +129,7 @@ data Shape = Shape
 vecShape :: WordVec -> Shape
 vecShape = snd . vecShape'
   
+-- | @vecShape' vec == (vecIsSmall vec , vecShape vec)@
 vecShape' :: WordVec -> (Bool,Shape)
 vecShape' (WordVec blob) = (isSmall,shape) where
   !h      = blobHead blob
@@ -97,11 +141,16 @@ vecShape' (WordVec blob) = (isSmall,shape) where
   mkShape :: Word64 -> Word64 -> Shape
   mkShape !x !y = Shape (fromIntegral x) (fromIntegral y)
 
+-- | @True@ if the internal representation is the \"small\" one
 vecIsSmall :: WordVec -> Bool
 vecIsSmall (WordVec blob) = (blobHead blob .&. 1) == 0  
 
-vecLen, vecBits :: WordVec -> Int
+-- | The length of the vector
+vecLen :: WordVec -> Int
 vecLen  = shapeLen  . vecShape
+
+-- | The number of bits per element used to encode the vector
+vecBits :: WordVec -> Int
 vecBits = shapeBits . vecShape
 
 --------------------------------------------------------------------------------
@@ -121,9 +170,13 @@ showsPrecWordVec prec dynvec
   . showChar ' ' 
   . shows (toList dynvec)
     
+-- | The Eq instances is strict: @x==y@ iff @toList x == toList y@.
+-- For an equality which disregards trailing zeros, see @eqExtZero@
 instance Eq WordVec where
-  (==) x y  =  (vecLen x == vecLen y) && (toList x == toList y)
+  (==) x y  =  eqStrict x y -- (vecLen x == vecLen y) && (toList x == toList y)
 
+-- | The Ord instances first compares the length, then if the lengths are equal, 
+-- compares the content lexicographically.
 instance Ord WordVec where
   compare x y = case compare (vecLen x) (vecLen y) of 
     LT -> LT
@@ -143,9 +196,11 @@ null (WordVec blob) =
   in  (h .&. 0xf9 == 0) || (h .&. 0xffffffe1 == 1)
   -- 0xf9       = 000 ... 00|11111001
   -- 0xffffffe1 = 111 ... 11|11100001
-   
+ 
+{-  
 null_naive :: WordVec -> Bool
 null_naive v = (vecLen v == 0)
+-}
 
 singleton :: Word -> WordVec
 singleton x = fromListN 1 x [x] where
@@ -158,6 +213,7 @@ isSingleton v = case (vecLen v) of
 --------------------------------------------------------------------------------
 -- * Indexing
 
+-- | No boundary check is done. Indexing starts from 0.
 unsafeIndex :: Int -> WordVec -> Word
 unsafeIndex idx dynvec@(WordVec blob) = 
   case isSmall of
@@ -179,14 +235,17 @@ safeIndex idx dynvec@(WordVec blob)
 --------------------------------------------------------------------------------
 -- * Head, tail, etc
     
+-- | Note: For the empty vector, @head@ returns 0
 head :: WordVec -> Word
-head dynvec@(WordVec blob) = 
-  case vecIsSmall dynvec of
-    True  -> extractSmallWord bits blob  8
-    False -> extractSmallWord bits blob 32
+head dynvec@(WordVec blob) 
+  | null dynvec  = 0
+  | otherwise    = case vecIsSmall dynvec of
+      True  -> extractSmallWord bits blob  8
+      False -> extractSmallWord bits blob 32
   where
     bits = vecBits dynvec
 
+-- | Note: For the empty vector, @last@ returns 0
 last :: WordVec -> Word
 last dynvec@(WordVec blob) 
   | len == 0   = 0
@@ -198,38 +257,25 @@ last dynvec@(WordVec blob)
 
 --------------------------------------------------------------------------------
 
-tail   = tail_v2
-cons   = cons_v2
-snoc   = snoc_v2
+-- | Note: For the empty vector, @tail@ returns (another) empty vector
+tail :: WordVec -> WordVec
+tail = tail_v2
+
+-- | Prepends an element
+cons :: Word -> WordVec -> WordVec
+cons = cons_v2
+
+-- | Appends an element
+snoc :: WordVec -> Word -> WordVec
+snoc = snoc_v2
+
+uncons :: WordVec -> Maybe (Word, WordVec)
 uncons = uncons_v2
 
---------------------------------------------------------------------------------
-
-tail_v1 :: WordVec -> WordVec
-tail_v1 dynvec 
-  | len == 0   = empty
-  | otherwise  = fromList' (Shape (len-1) bits) (L.tail $ toList dynvec)
-  where
-    (Shape len bits) = vecShape dynvec
-
-uncons_v1 :: WordVec -> Maybe (Word,WordVec)
-uncons_v1 vec  
-  | len == 0   = Nothing
-  | otherwise  = Just $ case toList vec of { (w:ws) -> (w , fromList' (Shape (len-1) bits) ws) }
-  where
-    (Shape len bits) = vecShape vec
-
-cons_v1 :: Word -> WordVec -> WordVec
-cons_v1 w vec = fromList' shape' (w : toList vec) where
-  (Shape len bits) = vecShape vec
-  bits'  = max bits (bitsNeededFor w)
-  shape' = Shape (len+1) bits'
-
-snoc_v1 :: WordVec -> Word -> WordVec
-snoc_v1 vec w = fromList' shape' (toList vec ++ [w]) where
-  (Shape len bits) = vecShape vec
-  bits'  = max bits (bitsNeededFor w)
-  shape' = Shape (len+1) bits'
+concat :: WordVec -> WordVec -> WordVec
+concat u v = fromList' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
+  Shape lu bu = vecShape u
+  Shape lv bv = vecShape v
 
 --------------------------------------------------------------------------------
 
@@ -355,12 +401,16 @@ fromList' (Shape len bits0) words
               in   current' : worker (k-1) (shiftR this (64-bitOfs)) newOfs' rest
 
 --------------------------------------------------------------------------------
--- * Specialized folds 
+-- * Specialized operations 
 --
--- $folds
+-- $spec
 --
--- These are are faster than the generic operations below, and should be preferred.
+-- These are are faster than the generic operations below, and should be preferred
+-- to those.
 --
+
+--------------------------------------------------------------------------------
+-- ** Specialized folds 
 
 -- | Sum of the elements of the vector
 sum :: WordVec -> Word
@@ -374,11 +424,7 @@ foreign import ccall unsafe "vec_sum" c_vec_sum :: CFun10 Word64
 foreign import ccall unsafe "vec_max" c_vec_max :: CFun10 Word64
 
 --------------------------------------------------------------------------------
--- * Specialized zipping folds 
---
--- $zipfolds
---
--- These are are faster than the generic operations below, and should be preferred.
+-- ** Specialized \"zipping folds\" 
 --
 
 foreign import ccall unsafe "vec_equal_strict"  c_equal_strict  :: CFun20 CInt
@@ -407,11 +453,7 @@ partialSumsLessOrEqual (WordVec blob1) (WordVec blob2) =
   (0 /= wrapCFun20 c_partial_sums_less_or_equal blob1 blob2)
 
 --------------------------------------------------------------------------------
--- * Specialized zips
---
--- $zips
---
--- These are are faster than the generic operations below, and should be preferred.
+-- ** Specialized zips
 --
 
 foreign import ccall unsafe "vec_add"           c_vec_add          :: CFun21_
@@ -441,7 +483,7 @@ subtract vec1@(WordVec blob1) vec2@(WordVec blob2) =
     Shape !l2 !b2 = vecShape vec2
 
 --------------------------------------------------------------------------------
--- * Specialized maps
+-- ** Specialized maps
 
 foreign import ccall unsafe "vec_scale" c_vec_scale :: Word64 -> CFun11_
 
@@ -455,7 +497,7 @@ scale s vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_scale (fromIntegral s)
   newbits = bitsNeededFor bound  
 
 --------------------------------------------------------------------------------
--- * Specialized scans
+-- ** Specialized scans
 
 foreign import ccall unsafe "vec_partial_sums" c_vec_partial_sums :: CFun11 Word64
 
@@ -484,11 +526,6 @@ boundedMap bound f vec = fromList' (Shape l bits) (toList vec) where
   l    = vecLen vec
   bits = bitsNeededFor bound
 
-concat :: WordVec -> WordVec -> WordVec
-concat u v = fromList' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
-  Shape lu bu = vecShape u
-  Shape lv bv = vecShape v
-
 naiveZipWith :: (Word -> Word -> Word) -> WordVec -> WordVec -> WordVec
 naiveZipWith f u v = fromList $ L.zipWith f (toList u) (toList v)
 
@@ -505,27 +542,19 @@ listZipWith f u v = L.zipWith f (toList u) (toList v)
 --------------------------------------------------------------------------------
 -- * Misc helpers
 
-foreign import ccall unsafe "export_required_bits_not_rounded" export_required_bits_not_rounded :: Word64 -> CInt
-foreign import ccall unsafe "export_required_bits"             export_required_bits             :: Word64 -> CInt
-
-{-
--- apparently, the C implementation is _not_ faster...
+-- | Number of bits needed to encode a given number, rounded up to multiples of four
 bitsNeededFor :: Word -> Int
-bitsNeededFor = fromIntegral . export_required_bits . fromIntegral
+bitsNeededFor = bitsNeededForHs
 
+-- | Number of bits needed to encode a given number
 bitsNeededFor' :: Word -> Int
-bitsNeededFor' = fromIntegral . export_required_bits_not_rounded . fromIntegral
--}
+bitsNeededFor' = bitsNeededForHs'
 
-bitsNeededFor, bitsNeededFor' :: Word -> Int
-bitsNeededFor  = bitsNeededForReference
-bitsNeededFor' = bitsNeededForReference'
+bitsNeededForHs :: Word -> Int
+bitsNeededForHs = roundBits . bitsNeededForHs'
 
-bitsNeededForReference :: Word -> Int
-bitsNeededForReference = roundBits . bitsNeededForReference'
-
-bitsNeededForReference' :: Word -> Int
-bitsNeededForReference' bound 
+bitsNeededForHs' :: Word -> Int
+bitsNeededForHs' bound 
   | bound   == 0  = 1                             -- this is handled incorrectly by the formula below
   | bound+1 == 0  = MACHINE_WORD_BITS             -- and this handled incorrectly because of overflow
   | otherwise     = ceilingLog2 (bound + 1)       -- for example, if maximum is 16, log2 = 4 but we need 5 bits 
@@ -536,6 +565,20 @@ bitsNeededForReference' bound
     ceilingLog2 n = 1 + go (n-1) where
       go 0 = -1
       go k = 1 + go (shiftR k 1)
+
+{-
+
+-- apparently, the C implementation is _not_ faster...
+
+foreign import ccall unsafe "export_required_bits_not_rounded" export_required_bits_not_rounded :: Word64 -> CInt
+foreign import ccall unsafe "export_required_bits"             export_required_bits             :: Word64 -> CInt
+
+bitsNeededForC :: Word -> Int
+bitsNeededForC = fromIntegral . export_required_bits . fromIntegral
+
+bitsNeededForC' :: Word -> Int
+bitsNeededForC' = fromIntegral . export_required_bits_not_rounded . fromIntegral
+-}
 
 -- | We only allow multiples of 4.
 roundBits :: Int -> Int
