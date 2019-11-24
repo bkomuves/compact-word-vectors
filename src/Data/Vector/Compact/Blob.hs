@@ -115,22 +115,7 @@ data Blob
   | Blob4 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
   | Blob5 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
   | Blob6 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
-  | BlobN !(ByteArray#) 
-
-{-
-IMPLEMENTATION REMARK:
-----------------------
-
-The runtime representation of Blob seems to be the same if we write
-
-  BlobN {-# UNPACK #-} !ByteArray
-
-instead (at least on GHC 6.8.5). This would be normally preferable, since 
-there is no need to deal with all the unlifted types. HOWEVER, I did a
-microbenchmark, and while the types themselves look interchangeable,
-the code GHC generates is NOT, and in fact much worse the nicer type
-(10x more heap allocations...). Which is unfortunate.
--}
+  | BlobN {-# UNPACK #-} !ByteArray 
 
 --------------------------------------------------------------------------------
 
@@ -139,13 +124,13 @@ blobTag blob = I# (dataToTag# blob)
 
 -- | Number of 'Word64'-s
 blobSizeInWords :: Blob -> Int
-blobSizeInWords blob = case blob of
-  BlobN arr  -> shiftR (I# (sizeofByteArray# arr)) 3
+blobSizeInWords !blob = case blob of
+  BlobN !arr -> shiftR (sizeofByteArray arr) 3
   otherwise  -> blobTag blob + 1
 
 blobSizeInBytes :: Blob -> Int
-blobSizeInBytes blob = case blob of
-  BlobN arr  -> I# (sizeofByteArray# arr)
+blobSizeInBytes !blob = case blob of
+  BlobN !arr -> sizeofByteArray arr
   otherwise  -> shiftL (blobTag blob + 1) 3
 
 blobSizeInBits :: Blob -> Int
@@ -158,7 +143,7 @@ blobFromWordList :: [Word64] -> Blob
 blobFromWordList ws = blobFromWordListN (length ws) ws
   
 blobFromWordListN :: Int -> [Word64] -> Blob  
-blobFromWordListN n ws = case n of
+blobFromWordListN !n ws = case n of
   0 -> Blob1 0
   1 -> case ws of { (a:_)            -> Blob1 a           }
   2 -> case ws of { (a:b:_)          -> Blob2 a b         }
@@ -166,8 +151,7 @@ blobFromWordListN n ws = case n of
   4 -> case ws of { (a:b:c:d:_)      -> Blob4 a b c d     }
   5 -> case ws of { (a:b:c:d:e:_)    -> Blob5 a b c d e   }
   6 -> case ws of { (a:b:c:d:e:f:_)  -> Blob6 a b c d e f }
-  _ -> case byteArrayFromListN n ws of 
-         ByteArray ba# -> BlobN ba#
+  _ -> BlobN (byteArrayFromListN n ws)
   
 blobToWordList :: Blob -> [Word64]
 blobToWordList blob = case blob of
@@ -177,18 +161,17 @@ blobToWordList blob = case blob of
   Blob4 a b c d     -> a:b:c:d:[]
   Blob5 a b c d e   -> a:b:c:d:e:[]
   Blob6 a b c d e f -> a:b:c:d:e:f:[]
-  BlobN ba#         -> foldrByteArray (:) [] (ByteArray ba#)
+  BlobN ba          -> foldrByteArray (:) [] ba
 
 --------------------------------------------------------------------------------
 -- * Conversion to\/from @ByteArray@-s
 
 -- | Note: we pad the input with zero bytes, assuming little-endian architecture.
 blobFromByteArray :: ByteArray -> Blob
-blobFromByteArray ba@(ByteArray ba#)
+blobFromByteArray !ba
   | nwords >  6  = if nwords1 == nwords
-                     then BlobN ba#
-                     else let ByteArray new# = byteArrayFromListN nwords words 
-                          in  BlobN new#
+                     then BlobN ba
+                     else BlobN (byteArrayFromListN nwords words )
   | nwords == 0  = Blob1 0
   | otherwise    = blobFromWordListN nwords words
   where
@@ -198,24 +181,27 @@ blobFromByteArray ba@(ByteArray ba#)
 
     words :: [Word64]
     words = if nwords1 == nwords
-      then foldrByteArray (:) [] (ByteArray ba#)  
+      then foldrByteArray (:) [] ba  
       else let !ofs = shiftL nwords1 3
                !m =   nbytes - ofs
                w8_to_w64 :: Word8 -> Word64
                w8_to_w64 = fromIntegral
-               !lastWord = L.foldl' (.|.) 0 [ shiftL (w8_to_w64 (indexByteArray ba (ofs + i))) (shiftL i 3) | i<-[0..m-1] ]
-           in  foldrByteArray (:) [lastWord] (ByteArray ba#)
+               !lastWord = L.foldl' (.|.) 0 
+                         [ shiftL (w8_to_w64 (indexByteArray ba (ofs + i))) (shiftL i 3) 
+                         | i<-[0..m-1] 
+                         ]
+           in  foldrByteArray (:) [lastWord] ba
 
 blobToByteArray :: Blob -> ByteArray
-blobToByteArray blob = case blob of
-  BlobN ba#         -> ByteArray ba#
-  _                 -> byteArrayFromListN (blobSizeInWords blob) (blobToWordList blob)
+blobToByteArray !blob = case blob of
+  BlobN ba  -> ba
+  _         -> byteArrayFromListN (blobSizeInWords blob) (blobToWordList blob)
 
 --------------------------------------------------------------------------------
 -- * Instances
   
 instance Show Blob where
-  showsPrec prec blob 
+  showsPrec prec !blob 
     = showParen (prec > 10) 
     $ showString "blobFromWordList " 
     . shows (map Hex $ blobToWordList blob)
@@ -233,7 +219,7 @@ eqBlob !x !y = if blobTag x /= blobTag y
     ( Blob4 a b c d     , Blob4 p q r s     ) -> a==p && b==q && c==r && d==s
     ( Blob5 a b c d e   , Blob5 p q r s t   ) -> a==p && b==q && c==r && d==s && e==t
     ( Blob6 a b c d e f , Blob6 p q r s t u ) -> a==p && b==q && c==r && d==s && e==t && f==u
-    ( BlobN one#        , BlobN two#        ) -> ByteArray one# == ByteArray two#     
+    ( BlobN one         , BlobN two         ) -> one == two     
     _                                         -> error "FATAL ERROR: should not happen"
 
 --------------------------------------------------------------------------------
@@ -261,7 +247,7 @@ hexWord64_ word = go [] 16 word where
 -- * Peek
  
 indexWord :: Blob -> Int -> Word64
-indexWord blob idx = case blob of
+indexWord !blob !idx = case blob of
 
   Blob1 a  
     | idx == 0   -> a
@@ -302,15 +288,15 @@ indexWord blob idx = case blob of
     | idx == 5   -> f
     | otherwise  -> error "Blob/indexWord: index out of bounds"
 
-  BlobN arr# -> indexByteArray (ByteArray arr#) idx
+  BlobN arr -> indexByteArray arr idx
  
 -- | NOTE: We assume a little-endian architecture here.
 -- Though it seems that since GHC does not gives us direct access to the closure,
 -- it doesn\'t matter after all...
 --  
 indexByte :: Blob -> Int -> Word8
-indexByte blob idx =
-  let w = indexWord blob (shiftR idx 3)
+indexByte !blob !idx =
+  let !w = indexWord blob (shiftR idx 3)
   in  fromIntegral $ shiftR w (8 * (idx .&. 7))
 
 --------------------------------------------------------------------------------
@@ -324,7 +310,7 @@ head blob = case blob of
   Blob4 a _ _ _       -> a
   Blob5 a _ _ _ _     -> a
   Blob6 a _ _ _ _ _   -> a
-  BlobN arr#          -> indexByteArray (ByteArray arr#) 0
+  BlobN arr           -> indexByteArray arr 0
 
 last :: Blob -> Word64
 last blob = case blob of
@@ -334,7 +320,7 @@ last blob = case blob of
   Blob4 _ _ _ z       -> z
   Blob5 _ _ _ _ z     -> z
   Blob6 _ _ _ _ _ z   -> z
-  BlobN arr#          -> indexByteArray (ByteArray arr#) (blobSizeInWords blob - 1)
+  BlobN arr           -> indexByteArray arr (blobSizeInWords blob - 1)
 
 --------------------------------------------------------------------------------
 -- * Cons, Snoc, tail
@@ -381,7 +367,7 @@ tail !blob = case blob of
 -- than the size (in bits) of the blob.
 --
 extractSmallWord :: Integral a => Int -> Blob -> Int -> a
-extractSmallWord n blob ofs = fromIntegral (extractSmallWord64 n blob ofs)
+extractSmallWord !n !blob !ofs = fromIntegral (extractSmallWord64 n blob ofs)
 
 extractSmallWord64 :: Int -> Blob -> Int -> Word64 
 extractSmallWord64 !n !blob !ofs
@@ -389,11 +375,11 @@ extractSmallWord64 !n !blob !ofs
   | q2 == q1 + 1 = mask .&. (shiftR (indexWord blob q1) r1 .|. shiftL (indexWord blob q2) (64-r1))
   | otherwise    = error "Blob/extractSmallWord: FATAL ERROR"
   where
-    mask = shiftL 1 n - 1
-    end  = ofs + n - 1
-    q1   = shiftR ofs 6 
-    q2   = shiftR end 6 
-    r1   = ofs .&. 63
+    !mask = shiftL 1 n - 1
+    !end  = ofs + n - 1
+    !q1   = shiftR ofs 6 
+    !q2   = shiftR end 6 
+    !r1   = ofs .&. 63
 
 {-
 -- | An alternate implementation using 'testBit', for testing purposes only
@@ -410,18 +396,18 @@ extractSmallWord64_naive n blob ofs = sum [ shiftL 1 i | i<-[0..n-1] , testBit b
 -- (the garbage collector can move it anytime), these involve copying.
 --
 pokeBlob :: Ptr Word64 -> Blob -> IO Int
-pokeBlob ptr blob = case blob of
+pokeBlob !ptr !blob = case blob of
   Blob1 a           -> poke      ptr  a             >> return 1
   Blob2 a b         -> pokeArray ptr [a,b]          >> return 2
   Blob3 a b c       -> pokeArray ptr [a,b,c]        >> return 3
   Blob4 a b c d     -> pokeArray ptr [a,b,c,d]      >> return 4
   Blob5 a b c d e   -> pokeArray ptr [a,b,c,d,e]    >> return 5
   Blob6 a b c d e f -> pokeArray ptr [a,b,c,d,e,f]  >> return 6
-  BlobN ba#         -> let !nbytes = I# (sizeofByteArray# ba#)
-                       in  copyByteArrayToPtr ba# 0 ptr nbytes  >> return (shiftR nbytes 3)
+  BlobN ba          -> let !nbytes = sizeofByteArray ba
+                       in  copyByteArrayToPtr ba 0 ptr nbytes  >> return (shiftR nbytes 3)
 
 peekBlob :: Int -> Ptr Word64 -> IO Blob
-peekBlob n ptr =
+peekBlob !n !ptr =
   case n of
     0 ->                                       return (Blob1 0)
     1 -> peek        ptr >>= \a             -> return (Blob1 a)
@@ -431,13 +417,10 @@ peekBlob n ptr =
     5 -> peekArray 5 ptr >>= \[a,b,c,d,e]   -> return (Blob5 a b c d e) 
     6 -> peekArray 6 ptr >>= \[a,b,c,d,e,f] -> return (Blob6 a b c d e f)
     _ -> do
-           mut@(MutableByteArray mut#) <- newByteArray (shiftL n 3)
-
-           --forM_ [0..n-1] $ \i -> peekElemOff ptr i >>= writeByteArray mut i 
-           copyPtrToByteArray ptr mut# 0 (shiftL n 3)
-
-           ba@(ByteArray ba#) <- unsafeFreezeByteArray mut
-           return (BlobN ba#)
+           mut <- newByteArray (shiftL n 3)
+           copyPtrToByteArray ptr mut 0 (shiftL n 3)
+           ba  <- unsafeFreezeByteArray mut
+           return (BlobN ba)
 
 --------------------------------------------------------------------------------
 -- * Wrappers for C implementations
@@ -592,20 +575,19 @@ forceToSize tgt blob
 -- * map and zipWith
 
 mapBlob :: (Word64 -> Word64) -> Blob -> Blob
-mapBlob f blob = case blob of
+mapBlob f !blob = case blob of
   Blob1 a           -> Blob1 (f a)
   Blob2 a b         -> Blob2 (f a) (f b)
   Blob3 a b c       -> Blob3 (f a) (f b) (f c)
   Blob4 a b c d     -> Blob4 (f a) (f b) (f c) (f d)
   Blob5 a b c d e   -> Blob5 (f a) (f b) (f c) (f d) (f e)
   Blob6 a b c d e y -> Blob6 (f a) (f b) (f c) (f d) (f e) (f y)
-  BlobN arr#        -> runST $ do
+  BlobN ba          -> runST $ do
     let !n = blobSizeInWords blob
-    let ba = ByteArray arr#
     mut <- newByteArray (shiftL n 3)
     forM_ [0..n-1] $ \i -> writeByteArray mut i $ f (indexByteArray ba i)
-    new@(ByteArray new#) <- unsafeFreezeByteArray mut 
-    return (BlobN new#)
+    new <- unsafeFreezeByteArray mut 
+    return (BlobN new)
    
 shortZipWith :: (Word64 -> Word64 -> Word64) -> Blob -> Blob -> Blob 
 shortZipWith f !blob1 !blob2 
@@ -635,15 +617,13 @@ unsafeZipWith f !blob1 !blob2 = case (blob1,blob2) of
   ( Blob4 a b c d     , Blob4 p q r s     ) -> Blob4 (f a p) (f b q) (f c r) (f d s)
   ( Blob5 a b c d e   , Blob5 p q r s t   ) -> Blob5 (f a p) (f b q) (f c r) (f d s) (f e t)
   ( Blob6 a b c d e y , Blob6 p q r s t u ) -> Blob6 (f a p) (f b q) (f c r) (f d s) (f e t) (f y u)
-  ( BlobN one#        , BlobN two#        ) -> 
+  ( BlobN ba1         , BlobN ba2         ) -> 
       runST $ do
         let !n = blobSizeInWords blob1
-            ba1 = ByteArray one#
-            ba2 = ByteArray two#
         mut <- newByteArray (shiftL n 3)
         forM_ [0..n-1] $ \i -> writeByteArray mut i $ f (indexByteArray ba1 i) (indexByteArray ba2 i)
-        new@(ByteArray new#) <- unsafeFreezeByteArray mut 
-        return (BlobN new#)
+        new <- unsafeFreezeByteArray mut 
+        return (BlobN new)
   _ -> error "FATAL ERROR: should not happen"
 
 --------------------------------------------------------------------------------
@@ -692,22 +672,16 @@ instance FiniteBits Blob where
 baToList :: ByteArray -> [Word64]
 baToList = foldrByteArray (:) [] 
 
-baToList# :: ByteArray# -> [Word64]
-baToList# ba# = foldrByteArray (:) [] (ByteArray ba#)
-
 baSizeInWords :: ByteArray -> Int
 baSizeInWords ba = shiftR (sizeofByteArray ba) 3
-
-baSizeInWords# :: ByteArray# -> Int
-baSizeInWords# ba# = shiftR (I# (sizeofByteArray# ba#)) 3
 
 -- copyByteArrayToAddr# :: ByteArray# -> Int# -> Addr# -> Int# -> State# s -> State# s
 -- copyAddrToByteArray# :: Addr# -> MutableByteArray# s -> Int# -> Int# -> State# s -> State# s
 
-copyByteArrayToPtr :: ByteArray# -> Int -> Ptr a -> Int -> IO ()
-copyByteArrayToPtr ba (I# ofs) (Ptr p) (I# n) = primitive_ $ copyByteArrayToAddr# ba ofs p n 
+copyByteArrayToPtr :: ByteArray -> Int -> Ptr a -> Int -> IO ()
+copyByteArrayToPtr (ByteArray ba#) (I# ofs) (Ptr p) (I# n) = primitive_ $ copyByteArrayToAddr# ba# ofs p n 
 
-copyPtrToByteArray :: Ptr a -> MutableByteArray# (PrimState IO) -> Int -> Int -> IO ()
-copyPtrToByteArray (Ptr p) mba (I# ofs) (I# n) = primitive_ $ copyAddrToByteArray# p mba ofs n
+copyPtrToByteArray :: Ptr a -> MutableByteArray (PrimState IO) -> Int -> Int -> IO ()
+copyPtrToByteArray (Ptr p) (MutableByteArray mut#) (I# ofs) (I# n) = primitive_ $ copyAddrToByteArray# p mut# ofs n
 
 --------------------------------------------------------------------------------
