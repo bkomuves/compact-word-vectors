@@ -513,6 +513,7 @@ partialSums vec@(WordVec blob) = WordVec $ snd $ wrapCFun11 c_vec_partial_sums f
 --------------------------------------------------------------------------------
 -- * Some generic operations
 
+-- | Left fold
 fold :: (a -> Word -> a) -> a -> WordVec -> a
 fold f x v = L.foldl' f x (toList v)  
 

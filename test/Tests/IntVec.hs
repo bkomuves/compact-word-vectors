@@ -26,6 +26,14 @@ arch_bits = 32
 
 --------------------------------------------------------------------------------
 
+-- | For testing purposes only
+uncons_naive :: IntVec -> Maybe (Int,IntVec)
+uncons_naive vec = if V.null vec 
+  then Nothing
+  else Just (V.head vec, V.tail vec)
+
+--------------------------------------------------------------------------------
+
 all_tests = testGroup "unit tests for IntVec-s"
   [ tests_unit
   , tests_small
@@ -139,7 +147,7 @@ prop_head_vs_index (NEVec  vec ) = V.head vec == unsafeIndex 0 vec
 
 prop_cons_uncons (NEVec vec)    =  liftM (uncurry V.cons) (V.uncons vec) == Just vec
 prop_uncons_cons (w,Vec vec)    =  V.uncons (V.cons w vec) == Just (w,vec)
-prop_uncons_vs_naive (Vec vec)  =  V.uncons vec == V.uncons_naive vec
+prop_uncons_vs_naive (Vec vec)  =  V.uncons vec == uncons_naive vec
 
 prop_uncons_vs_list (Vec vec) = unconsToList (V.uncons vec) == L.uncons (V.toList vec)
 prop_cons_vs_list (w,Vec vec) = V.toList (V.cons w vec) == w : (V.toList vec)

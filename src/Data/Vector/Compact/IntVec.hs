@@ -4,17 +4,48 @@
 -- See "Data.Vector.Compact.WordVec" for more details.
 --
 -- Note: for unsigned integers, you really should use 'WordVec' instead, 
--- because that is significantly faster.
+-- because that is significantly faster, and has much more specialized functions
+-- implemented.
 --
 -- This module should be imported qualified (to avoid name clashes with Prelude).
 --
 
 {-# LANGUAGE BangPatterns #-}
-module Data.Vector.Compact.IntVec where
+module Data.Vector.Compact.IntVec
+  ( -- * The dynamic Word vector type
+    IntVec(..)
+  , Shape(..)
+  , vecShape 
+  , vecLen , vecBits 
+    -- * Show instance
+  , showIntVec , showsPrecIntVec
+    -- * Empty vector, singleton
+  , null , empty
+  , singleton , isSingleton
+    -- * Conversion to\/from lists
+  , fromList , fromList' , fromList''
+  , lenMinMax
+  , toList , toRevList
+    -- * Indexing
+  , unsafeIndex , safeIndex 
+    -- * Head, tail, etc
+  , head , tail , cons , uncons
+  , last , snoc                     -- init, unsnoc
+  , concat
+    -- * Generic operations
+  , fold
+  , naiveMap , boundedMap
+  , naiveZipWith , boundedZipWith , listZipWith
+    -- * Number of bits needed
+  , bitsNeededForMinMax
+  , bitsNeededFor 
+  , roundBits
+  )
+  where
 
 --------------------------------------------------------------------------------
 
-import Prelude hiding ( head , tail , null ) 
+import Prelude hiding ( head , tail , init , last , null , concat ) 
 import qualified Data.List as L
 
 import Data.Bits
@@ -39,13 +70,14 @@ instance Ord IntVec where
     GT -> GT
     EQ -> compare (toList x) (toList y)
   
-    
 vecShape :: IntVec -> Shape  
 vecShape (IntVec dyn) = Dyn.vecShape dyn
 
+-- | The length of the vector
 vecLen :: IntVec -> Int
 vecLen (IntVec dyn) = Dyn.vecLen dyn 
 
+-- | The number of bits per element used to encode the vector
 vecBits :: IntVec -> Int
 vecBits (IntVec dyn) = Dyn.vecBits dyn
 
@@ -89,15 +121,19 @@ toList :: IntVec -> [Int]
 toList (IntVec dynvec) = map (word2int bits) $ Dyn.toList dynvec where
   !bits = Dyn.vecBits dynvec
 
+-- | @toRevList == reverse . toList@
 toRevList :: IntVec -> [Int]
 toRevList (IntVec dynvec) = map (word2int bits) $ Dyn.toRevList dynvec where
   !bits = Dyn.vecBits dynvec
 
+-- | Note: @fromList xs = fromList' (lenMinMax xs)@ 
 fromList :: [Int] -> IntVec
 fromList xs = IntVec $ Dyn.fromList' (Dyn.Shape len bits) $ map (int2word bits) xs where
   (!len,!minMax) = lenMinMax xs
   !bits = roundBits (bitsNeededForMinMax minMax)
 
+-- | usage: @fromList' (len,(min,max)) xs@ where @min@ and @max@ are the minimum and
+-- maximum (or just a lower and upper bound) appearing in the list.
 fromList' :: (Int,(Int,Int)) -> [Int] -> IntVec
 fromList' (!len,!minMax) xs = IntVec $ Dyn.fromList' (Dyn.Shape len bits) $ map (int2word bits) xs where
   !bits = roundBits (bitsNeededForMinMax minMax)
@@ -106,12 +142,14 @@ fromList' (!len,!minMax) xs = IntVec $ Dyn.fromList' (Dyn.Shape len bits) $ map 
 fromList'' :: Shape -> [Int] -> IntVec
 fromList'' shape@(Shape len !bits) xs = IntVec $ Dyn.fromList' shape $ map (int2word bits) xs 
 
---------------------------------------------------------------------------------
-
+-- | Computes the length, minimum and maximum of a list, traversing it only
+-- once (instead of 3 times).
 lenMinMax :: [Int] -> (Int,(Int,Int))
 lenMinMax = go 0 0 0 where
   go !cnt !p !q (x:xs) = go (cnt+1) (min x p) (max x q) xs
   go !cnt !p !q []     = (cnt,(p,q))
+
+--------------------------------------------------------------------------------
 
 int2word :: Int -> (Int -> Word)
 int2word !bits = i2w where
@@ -134,6 +172,7 @@ word2int !bits = w2i where
 --------------------------------------------------------------------------------
 -- * Indexing
 
+-- | Indexing starts from 0. No bound checks are done.
 unsafeIndex :: Int -> IntVec -> Int
 unsafeIndex idx (IntVec dynvec) = word2int bits (Dyn.unsafeIndex idx dynvec) where
   !bits = Dyn.vecBits dynvec
@@ -163,29 +202,39 @@ uncons (IntVec dynvec) = case Dyn.uncons dynvec of
   where
     bits = Dyn.vecBits dynvec
 
+{-
 -- | For testing purposes only
 uncons_naive :: IntVec -> Maybe (Int,IntVec)
 uncons_naive vec = if null vec 
   then Nothing
   else Just (head vec, tail vec)
+-}
 
+-- | Prepends an element
 cons :: Int -> IntVec -> IntVec
 cons k ivec@(IntVec vec) = IntVec $ Dyn.fromList' shape' $ map (int2word bits') (k : toList ivec) where
   (Shape len bits) = Dyn.vecShape vec
   bits'  = roundBits $ max bits (bitsNeededFor k)
   shape' = Shape (len+1) bits'
 
---------------------------------------------------------------------------------
+-- | Appends an element
+snoc :: IntVec -> Int -> IntVec
+snoc ivec@(IntVec vec) k = IntVec $ Dyn.fromList' shape' $ map (int2word bits') (toList ivec ++ [k]) where
+  (Shape len bits) = Dyn.vecShape vec
+  bits'  = roundBits $ max bits (bitsNeededFor k)
+  shape' = Shape (len+1) bits'
 
-{-
 concat :: IntVec -> IntVec -> IntVec
-concat u v = fromList' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
+concat u v = fromList'' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
   Shape lu bu = vecShape u
   Shape lv bv = vecShape v
--}
 
 --------------------------------------------------------------------------------
--- * Some more operations
+-- * Generic operations
+
+-- | Left fold
+fold :: (a -> Int -> a) -> a -> IntVec -> a
+fold f x v = L.foldl' f x (toList v)  
 
 naiveMap :: (Int -> Int) -> IntVec -> IntVec
 naiveMap f u = fromList (map f $ toList u)
@@ -196,11 +245,6 @@ boundedMap :: (Int,Int) -> (Int -> Int) -> IntVec -> IntVec
 boundedMap minMax f vec = fromList'' (Shape l bits) (toList vec) where
   l    = vecLen vec
   bits = roundBits $ bitsNeededForMinMax minMax
-
-concat :: IntVec -> IntVec -> IntVec
-concat u v = fromList'' (Shape (lu+lv) (max bu bv)) (toList u ++ toList v) where
-  Shape lu bu = vecShape u
-  Shape lv bv = vecShape v
 
 naiveZipWith :: (Int -> Int -> Int) -> IntVec -> IntVec -> IntVec
 naiveZipWith f u v = fromList $ L.zipWith f (toList u) (toList v)
@@ -218,11 +262,16 @@ listZipWith f u v = L.zipWith f (toList u) (toList v)
 --------------------------------------------------------------------------------
 -- * helpers for counting the necessary number of bits
 
+-- | usage: @bitsNeededForMinMax (min,max)@
 bitsNeededForMinMax :: (Int,Int) -> Int
 bitsNeededForMinMax (p,q) = max (bitsNeededFor p) (bitsNeededFor q)
 
+-- | Note: this automatically rounds up to multiples of 4
 bitsNeededFor :: Int -> Int
-bitsNeededFor bound 
+bitsNeededFor = roundBits . bitsNeededFor'
+
+bitsNeededFor' :: Int -> Int
+bitsNeededFor' bound 
   | bound >= 0  = ceilingLog2 (    bound + 1) + 1   -- +8 needs 5 bits (-16..+15)
   | bound <  0  = ceilingLog2 (abs bound    ) + 1   -- -8 needs 4 bits (-8 ..+7 )
   where 
