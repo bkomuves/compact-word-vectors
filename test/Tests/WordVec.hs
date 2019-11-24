@@ -82,6 +82,12 @@ sub_naive vec1 vec2 = case and (listLongZipWith (>=) (V.toList vec1) (V.toList v
   True  -> Just $ V.fromList $  listLongZipWith (-)  (V.toList vec1) (V.toList vec2)
   False -> Nothing
 
+scale_naive :: Word -> WordVec -> WordVec
+scale_naive s = V.fromList . L.map (*s) . V.toList 
+
+partialSums_naive :: WordVec -> WordVec
+partialSums_naive = V.fromList . L.tail . L.scanl' (+) 0 . V.toList
+
 --------------------------------------------------------------------------------
 
 all_tests = testGroup "tests for WordVec-s"
@@ -134,6 +140,11 @@ tests_small = testGroup "unit tests for small dynamic word vectors"
       , testCase "add vs. naive"                 $ forall_ small_pairs   prop_add_vs_naive
       , testCase "sub vs. naive"                 $ forall_ small_pairs   prop_sub_vs_naive
       , testCase "add is commutative"            $ forall_ small_pairs   prop_add_commutative
+      , testCase "partial sums vs. naive"        $ forall_ small_Vecs    prop_psums_vs_naive
+      , testCase "scale 3 vs. naive"             $ forall_ small_Vecs   (prop_scale_vs_naive 3)
+      , testCase "scale 14 vs. naive"            $ forall_ small_Vecs   (prop_scale_vs_naive 14)
+      , testCase "scale 254 vs. naive"           $ forall_ small_Vecs   (prop_scale_vs_naive 254)
+      , testCase "scale 65000 vs. naive"         $ forall_ small_Vecs   (prop_scale_vs_naive 65000)
       ]
   ]
 
@@ -168,6 +179,11 @@ tests_rnd = testGroup "tests for random dynamic word vectors"
       , testCase "add vs. naive"                 $ forall_ rnd_pairs   prop_add_vs_naive
       , testCase "sub vs. naive"                 $ forall_ rnd_pairs   prop_sub_vs_naive
       , testCase "add is commutative"            $ forall_ rnd_pairs   prop_add_commutative
+      , testCase "partial sums vs. naive"        $ forall_ rnd_Vecs    prop_psums_vs_naive
+      , testCase "scale 3 vs. naive"             $ forall_ rnd_Vecs   (prop_scale_vs_naive 3)
+      , testCase "scale 14 vs. naive"            $ forall_ rnd_Vecs   (prop_scale_vs_naive 14)
+      , testCase "scale 254 vs. naive"           $ forall_ rnd_Vecs   (prop_scale_vs_naive 254)
+      , testCase "scale 65000 vs. naive"         $ forall_ rnd_Vecs   (prop_scale_vs_naive 65000)
       ]
   ]
 
@@ -202,7 +218,12 @@ tests_bighead = testGroup "unit tests for small dynamic word vectors with big he
       , testCase "add vs. naive"                 $ forall_ bighead_pairs   prop_add_vs_naive
       , testCase "sub vs. naive"                 $ forall_ bighead_pairs   prop_sub_vs_naive
       , testCase "add is commutative"            $ forall_ bighead_pairs   prop_add_commutative
-      ]
+      , testCase "partial sums vs. naive"        $ forall_ bighead_Vecs    prop_psums_vs_naive
+      , testCase "scale 3 vs. naive"             $ forall_ bighead_Vecs   (prop_scale_vs_naive 3)
+      , testCase "scale 14 vs. naive"            $ forall_ bighead_Vecs   (prop_scale_vs_naive 14)
+      , testCase "scale 254 vs. naive"           $ forall_ bighead_Vecs   (prop_scale_vs_naive 254)
+      , testCase "scale 65000 vs. naive"         $ forall_ bighead_Vecs   (prop_scale_vs_naive 65000)
+       ]
   ]
 
 forall_ :: [a] -> (a -> Bool) -> Assertion
@@ -398,6 +419,12 @@ prop_add_commutative (Vec vec1 , Vec vec2) = V.add      vec1 vec2 == V.add vec2 
 prop_add_vs_naive    (Vec vec1 , Vec vec2) = V.add      vec1 vec2 == add_naive vec1 vec2
 prop_sub_vs_naive    (Vec vec1 , Vec vec2) = V.subtract vec1 vec2 == sub_naive vec1 vec2
 
-bad_add = [ (bad1,bad2) | (Vec bad1, Vec bad2) <- bighead_pairs , not (prop_add_vs_naive (Vec bad1 , Vec bad2)) ]
+-- bad_add = [ (bad1,bad2) | (Vec bad1, Vec bad2) <- bighead_pairs , not (prop_add_vs_naive (Vec bad1 , Vec bad2)) ]
+
+prop_psums_vs_naive   (Vec vec) = V.partialSums vec == partialSums_naive vec
+prop_scale_vs_naive s (Vec vec) = V.scale s vec     == scale_naive s vec
+
+bad_psums  = [ bad | Vec bad <- bighead_Vecs , not (prop_psums_vs_naive   (Vec bad)) ]
+bad_scale3 = [ bad | Vec bad <- bighead_Vecs , not (prop_scale_vs_naive 3 (Vec bad)) ]
 
 --------------------------------------------------------------------------------

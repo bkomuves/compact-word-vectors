@@ -742,3 +742,92 @@ int vec_sub_overflow(int n1, const uint64_t *src1, int n2, const uint64_t *src2,
 }
 
 // -----------------------------------------------------------------------------
+// maps
+
+void vec_scale(uint64_t s, int n, const uint64_t *src, int *pm, uint64_t *tgt)
+{
+  VEC_HEADER_CODE(src)
+
+  uint64_t sbnd = 1;
+  sbnd  = sbnd << (64-bits);
+  int tgt_bits;
+  if (s <= sbnd) {
+    uint64_t bound = 1;
+    bound = bound << bits;
+    bound = s * (bound - 1);
+    tgt_bits = required_bits(bound);
+  }
+  else {
+    tgt_bits = 64;
+  }
+  int tgt_reso = bits2reso(tgt_bits);
+
+  uint64_t *q = tgt;
+  int q_ofs;
+  // write header
+  if ( (tgt_bits <= MAX_SMALL_BITS) && (len <= MAX_SMALL_LENGTH) ) {
+    q[0]  = SMALL_HEADER( len , tgt_reso );  
+    q_ofs = 8;
+  }
+  else {
+    q[0]  = BIG_HEADER( len , tgt_reso );  
+    q_ofs = 32;
+  }
+    
+  VEC_READ_LOOP
+    uint64_t y = s * elem;
+    WRITE_ELEMENT(y)
+  }
+
+  STORE_OUTPUT_LENGTH(pm)
+}
+
+// -----------------------------------------------------------------------------
+
+// x1, x1+x2, x1+x2+x3
+uint64_t vec_partial_sums(int n, const uint64_t *src, int *pm, uint64_t *tgt)
+{
+  VEC_HEADER_CODE(src)
+
+  int overflow = 0;
+  uint64_t sum = 0, tmp;
+  { 
+    VEC_READ_LOOP
+      tmp = sum + elem;
+      if (tmp < sum) { overflow = 1; }
+      sum = tmp;
+    }
+  }
+  
+  int tgt_bits;
+  if (overflow) { 
+    tgt_bits = 64;
+  }
+  else {
+    tgt_bits = required_bits(sum);
+  }
+  int tgt_reso = bits2reso(tgt_bits);
+  
+  uint64_t *q = tgt;
+  int q_ofs;
+  // write header
+  if ( (tgt_bits <= MAX_SMALL_BITS) && (len <= MAX_SMALL_LENGTH) ) {
+    q[0]  = SMALL_HEADER( len , tgt_reso );  
+    q_ofs = 8;
+  }
+  else {
+    q[0]  = BIG_HEADER( len , tgt_reso );  
+    q_ofs = 32;
+  }
+    
+  uint64_t acc = 0;
+  VEC_READ_LOOP
+    acc += elem;
+    WRITE_ELEMENT(acc)
+  }
+
+  STORE_OUTPUT_LENGTH(pm)
+  return sum;
+}
+
+// -----------------------------------------------------------------------------

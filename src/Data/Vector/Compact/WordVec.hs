@@ -439,6 +439,34 @@ subtract vec1@(WordVec blob1) vec2@(WordVec blob2) =
     f _ _ = 1 + shiftR ( (max b1 b2 + 4)*(max l1 l2) + 63 ) 6
     Shape !l1 !b1 = vecShape vec1
     Shape !l2 !b2 = vecShape vec2
+
+--------------------------------------------------------------------------------
+-- * Specialized maps
+
+foreign import ccall unsafe "vec_scale" c_vec_scale :: Word64 -> CFun11_
+
+scale :: Word -> WordVec -> WordVec
+scale s vec@(WordVec blob) = WordVec $ wrapCFun11_ (c_vec_scale (fromIntegral s)) f blob where
+  f _ = shiftR (32 + len*newbits + 63) 6   
+  Shape !len !bits = vecShape vec
+  bound = if s <= shiftL 1 (64-bits)
+    then (2^bits - 1) * s
+    else (2^64   - 1)
+  newbits = bitsNeededFor bound  
+
+--------------------------------------------------------------------------------
+-- * Specialized scans
+
+foreign import ccall unsafe "vec_partial_sums" c_vec_partial_sums :: CFun11 Word64
+
+partialSums :: WordVec -> WordVec
+partialSums vec@(WordVec blob) = WordVec $ snd $ wrapCFun11 c_vec_partial_sums f blob where
+  f _ = shiftR (32 + len*newbits + 63) 6   
+  Shape !len !bits = vecShape vec
+  bound = if len <= shiftL 1 (64-bits)
+    then (2^bits - 1) * (fromIntegral len :: Word)        -- worst case: @replicate N (2^bits-1)@
+    else (2^64   - 1)
+  newbits = bitsNeededFor bound  
     
 --------------------------------------------------------------------------------
 -- * Some generic operations
