@@ -14,7 +14,7 @@ License-file:        LICENSE
 Author:              Balazs Komuves
 Copyright:           (c) 2019-2021 Balazs Komuves
 Maintainer:          bkomuves (plus) hackage (at) gmail (dot) com
-Homepage:            http://moire.be/haskell/
+Homepage:            https://github.com/bkomuves/compact-word-vectors
 Stability:           Experimental
 Category:            Data
 Tested-With:         GHC == 8.6.5
