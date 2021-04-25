@@ -404,7 +404,7 @@ pokeBlob !ptr !blob = case blob of
   Blob5 a b c d e   -> pokeArray ptr [a,b,c,d,e]    >> return 5
   Blob6 a b c d e f -> pokeArray ptr [a,b,c,d,e,f]  >> return 6
   BlobN ba          -> let !nbytes = sizeofByteArray ba
-                       in  copyByteArrayToPtr ba 0 ptr nbytes  >> return (shiftR nbytes 3)
+                       in  myCopyByteArrayToPtr ba 0 ptr nbytes  >> return (shiftR nbytes 3)
 
 peekBlob :: Int -> Ptr Word64 -> IO Blob
 peekBlob !n !ptr =
@@ -418,7 +418,7 @@ peekBlob !n !ptr =
     6 -> peekArray 6 ptr >>= \[a,b,c,d,e,f] -> return (Blob6 a b c d e f)
     _ -> do
            mut <- newByteArray (shiftL n 3)
-           copyPtrToByteArray ptr mut 0 (shiftL n 3)
+           myCopyPtrToByteArray ptr mut 0 (shiftL n 3)
            ba  <- unsafeFreezeByteArray mut
            return (BlobN ba)
 
@@ -678,10 +678,12 @@ baSizeInWords ba = shiftR (sizeofByteArray ba) 3
 -- copyByteArrayToAddr# :: ByteArray# -> Int# -> Addr# -> Int# -> State# s -> State# s
 -- copyAddrToByteArray# :: Addr# -> MutableByteArray# s -> Int# -> Int# -> State# s -> State# s
 
-copyByteArrayToPtr :: ByteArray -> Int -> Ptr a -> Int -> IO ()
-copyByteArrayToPtr (ByteArray ba#) (I# ofs) (Ptr p) (I# n) = primitive_ $ copyByteArrayToAddr# ba# ofs p n 
+-- | note: @n@ this is number of /bytes/. Since primitive 0.7.1.0, the same function is 
+-- implemented there, but with different argument order and /number of elements/ instead.
+myCopyByteArrayToPtr :: ByteArray -> Int -> Ptr a -> Int -> IO ()
+myCopyByteArrayToPtr (ByteArray ba#) (I# ofs) (Ptr p) (I# n) = primitive_ $ copyByteArrayToAddr# ba# ofs p n 
 
-copyPtrToByteArray :: Ptr a -> MutableByteArray (PrimState IO) -> Int -> Int -> IO ()
-copyPtrToByteArray (Ptr p) (MutableByteArray mut#) (I# ofs) (I# n) = primitive_ $ copyAddrToByteArray# p mut# ofs n
+myCopyPtrToByteArray :: Ptr a -> MutableByteArray (PrimState IO) -> Int -> Int -> IO ()
+myCopyPtrToByteArray (Ptr p) (MutableByteArray mut#) (I# ofs) (I# n) = primitive_ $ copyAddrToByteArray# p mut# ofs n
 
 --------------------------------------------------------------------------------

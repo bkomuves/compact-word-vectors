@@ -1,5 +1,5 @@
 Name:                compact-word-vectors
-Version:             0.2.0.1
+Version:             0.2.0.2
 Synopsis:            Small vectors of small integers stored very compactly.
 Description:         A data structure to store small vectors of small integers
                      with minimal memory overhead. For example the (word) vector
@@ -12,7 +12,7 @@ Description:         A data structure to store small vectors of small integers
 License:             BSD3
 License-file:        LICENSE
 Author:              Balazs Komuves
-Copyright:           (c) 2019 Balazs Komuves
+Copyright:           (c) 2019-2021 Balazs Komuves
 Maintainer:          bkomuves (plus) hackage (at) gmail (dot) com
 Homepage:            http://moire.be/haskell/
 Stability:           Experimental
