@@ -31,7 +31,7 @@ source-repository head
 
 Library
 
-  Build-Depends:       base >= 4 && < 5, primitive >= 0.7
+  Build-Depends:       base >= 4.8 && < 5, primitive >= 0.7
 
   Exposed-Modules:     Data.Vector.Compact.WordVec
                        Data.Vector.Compact.IntVec
