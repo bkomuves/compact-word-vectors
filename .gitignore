@@ -3,3 +3,5 @@ dist-newstyle
 _misc
 *.hi
 *.o
+cabal.project.local*
+.ghc.environment*
